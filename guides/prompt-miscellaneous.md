@@ -55,4 +55,4 @@ ReAct 框架可以让 大模型 与外部工具进行交互，以获取更可靠
 
 ---
 
-[上一节（对抗性提示）](./prompt-adversarial.md)
+[上一节（对抗性提示）](https://www.prompting.work/post/5)

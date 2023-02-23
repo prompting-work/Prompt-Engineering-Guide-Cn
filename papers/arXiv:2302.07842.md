@@ -1,0 +1,839 @@
+# 增强语言模型的探索
+
+## 摘要
+
+本次调查回顾了语言模型（LM）与推理技能和使用工具能力相结合的作品。前者定义为将潜在的复杂任务分解为更简单的子任务，而后者则包括调用外部模块，如代码解释器。LM 可以通过启发式独立或结合这些增强来利用它们，或者从演示中学习如何做到这一点。在遵守标准缺失标记预测目标的同时，这些增强的 LM 可以使用各种可能是非参数的外部模块来扩展其上下文处理能力，从而从纯语言建模范式上脱离出来。因此，我们将其称为增强语言模型（ALM）。缺失标记目标允许 ALM 学习推理、使用工具，甚至行动，同时仍然执行标准的自然语言任务，甚至在几个基准测试上超越大多数常规 LM。在本文中，在回顾当前 ALM 的进展之后，我们得出结论，这一新的研究方向有可能解决传统 LM 的常见局限性，如可解释性、一致性和可扩展性问题。
+
+## 目录
+
+- [引言:调查的动机和定义](#引言:调查的动机和定义)
+  - [动机](#动机)
+  - [我们的分类](#我们的分类)
+- [推理](#推理)
+  - [通过提示来表达推理](#通过提示来表达推理)
+  - [递归提示](#递归提示)
+  - [明确教授推理的语言模型](#明确教授推理的语言模型)
+  - [抽象推理的比较和局限性](#抽象推理的比较和局限性)
+- [使用工具和行动](#使用工具和行动)
+  - [调用另一个模型](#调用另一个模型)
+  - [信息检索](#信息检索)
+    - [检索增强的语言模型](#检索增强的语言模型)
+    - [查询搜索引擎](#查询搜索引擎)
+    - [搜索和浏览网页](#搜索和浏览网页)
+  - [通过符号模块和代码解释器计算](#通过符号模块和代码解释器计算)
+  - [在虚拟和物理世界中行动](#在虚拟和物理世界中行动)
+- [学习推理、使用工具和行动](#学习推理、使用工具和行动)
+  - [监督](#监督)
+  - [强化学习](#强化学习)
+  - [局限性和未来方向](#局限性和未来方向)
+- [讨论](#讨论)
+- [结论](#结论)
+
+## 1 引言:调查的动机和定义
+
+### 1.1 动机
+
+大规模语言模型（Devlin 等，2019; Brown 等，2020; Chowdhery 等，2022）为自然语言处理（NLP）的进步提供了推动力，并已成为拥有数百万用户的多个产品的核心，例如编码助手 Copilot（Chen 等，2021），谷歌搜索引擎 1 或更近期的 ChatGPT2。Memorization （Tirumala 等，2022）与组合性能力使大规模语言模型能够以前所未有的性能水平执行各种任务，如语言理解或条件和无条件文本生成，从而为实现更好的人机交互打开了一条现实的道路。
+
+然而，大规模语言模型存在重要的限制，阻碍了更广泛的部署。大规模语言模型通常提供非事实性但似乎合理的预测，通常被称为幻觉（Welleck 等，2020）。这导致许多可避免的错误，例如在算术（Qian 等，2022）或推理链（Wei 等，2022c）的上下文中。此外，许多大规模语言模型的开创性能力似乎随着可训练参数的数量而出现：例如，Wei 等人（2022b）证明，LLM 在达到一定规模后，通过少量提示就能够胜任一些 BIG-bench 任务 3。尽管最近的一系列工作产生了保留了大型对手的某些能力的较小语言模型（Hoffmann 等，2022），但 大规模语言模型的大小和数据需求可能在训练和维护时都不切实际：大型模型的持续学习仍是一个未解决的研究问题（Scialom 等，2022）。 Goldberg（2023）在基于 GPT3 构建的聊天机器人 ChatGPT 中讨论了 大规模语言模型的 的其他限制。
+
+我们认为这些问题源于大规模语言模型的一个根本性缺陷：它们通常被训练用于基于（i）单一参数模型和（ii）有限的上下文（通常是 n 个先前或周围的标记）执行统计语言建模。尽管近年来由于软件和硬件技术的创新，n 的增长已经取得了显著进展，但大多数模型仍然使用相对较小的上下文尺寸与潜在的大型上下文相比较，以始终正确地执行语言建模。因此，存储非上下文但必要的执行任务所需知识，需要大规模数据。
+
+随着上述问题日益严重，解决这些问题的研究趋势日益增长，略微偏离了纯粹的统计语言建模范式。例如，一系列工作通过从相关的外部文档中提取的信息来回避 LLM 的有限上下文大小，从而提高其相关性。通过在给定上下文的情况下给 LM 配备一个从数据库检索这些文档的模块，就可以实现与最大的 LM 的某些功能相匹配，同时参数更少。请注意，由此产生的模型现在是非参数的，因为它可以查询外部数据源。更一般地说，LM 也可以通过推理策略来改善其上下文，以便在生成答案之前计算更多，从而产生更相关的上下文。另一种策略是允许 LM 利用外部工具来增强当前上下文中重要的缺失信息，这些信息不包含在 LM 的权重中。尽管这些工作的大多数目的是缓解上述 LM 的缺点，但很容易想到，使用推理和工具系统地增强 LM 可能会带来更强大的代理。我们将这些模型称为增强语言模型（ALM）。由于这一趋势正在加速，跟踪和理解众多结果的范围变得艰巨。这就需要对 ALM 工作进行分类和定义技术术语，有时这些术语的意图不同。
+
+现在我们为本调查中将要使用的一些术语提供定义。
+
+- 推理。
+
+在 ALM 的背景下，推理指的是将复杂的任务分解成更容易被 LM 自己或者使用工具解决的更简单的子任务。存在多种分解成子任务的方式，如递归或迭代。从这个意义上来说，推理类似于 LeCun（2022）定义的规划。在本调查中，推理经常指的是改善 LM 推理能力的各种策略，如基于少量例子的逐步推理。尚不完全理解 LM 是真的进行推理，还是只是产生更大的上下文，以增加正确预测缺失令牌的可能性。我们参考 Huang 和 Chang（2022）探讨这个话题：尽管考虑到当前技术水平，推理可能目前是一种语言的滥用，但在社区中已经有了这个词。在 ALMs 的背景下，推理更加实用的定义是在产生对提示的答案之前给模型更多的计算步骤。
+
+- 工具。
+
+对于 ALM，工具是通过规则或特殊令牌调用的外部模块，其输出包括在 ALM 的上下文中。工具可以获取外部信息，或对虚拟或物理世界产生影响（一般由 ALM 感知）。一个获取外部信息的工具的例子是文档检索器，而具有外部效果的工具是机械臂。工具可以在训练或推理时调用。更一般地，学习与工具交互可能包括学习调用其 API。
+
+- 自主行动
+  对于 ALM，调用具有对虚拟或物理世界的影响，并观察结果，通常是将其包含在 ALM 的当前上下文中。例如，本调查中的一些工作讨论了通过 LM 搜索网络或机械臂操作。稍微滥用这个术语，我们有时会将 ALM 调用工具称为自主行动，即使它没有外部效果。
+
+**为什么要联合讨论推理和工具？** 语言模型中推理和工具的结合应该能够在不使用启发式算法的情况下解决一系列复杂的任务，因此具有更好的泛化能力。通常，推理会促使语言模型将给定问题分解为潜在的更简单的子任务，而工具则有助于正确完成每一步，例如获得数学运算的结果。换句话说，推理是语言模型结合不同工具来解决复杂任务的一种方式，而工具则是一种不会因为有效分解而失败的方式。这两者都应该从对方中受益。此外，推理和工具可以统一起来，因为它们都在语言模型的上下文中增加信息，以便它更好地预测缺失的标记，尽管方式不同。
+
+**为什么要联合讨论工具和自主行动？** 可以用同样的方式称呼收集附加信息并且对虚拟或物理世界产生影响的工具，这些工具可以被称为 LM。例如，输出 python 代码来解决数学运算的 LM 与输出 python 代码来操纵机器人臂的 LM 几乎没有区别。本调查中提到的一些作品已经在使用具有对虚拟或物理世界影响的 LM：从这个视角出发，我们可以说 LM 有自主行动的潜力，期待 LM 作为自主代理的重要进展。
+
+### 1.2 我们的分类
+
+我们把本次调查中涉及的工作划分分为三个轴。第二节研究的是增强 LM 的推理能力，如上所述。第三节专注于让 LM 与外部工具交互并行动的工作。最后，第四节探索推理和工具使用是通过启发式方法还是学习，例如通过监督学习或强化学习。本次调查可以有其他轴，这些将在第五节讨论。为了简洁起见，本次调查主要关注将推理或工具与 LM 相结合的工作。但是，读者应牢记，许多技术最初是在 LM 以外的其他上下文中引入的，如果需要，应参考我们提到的论文的介绍和相关工作部分。最后，尽管我们主要关注 LLM，但并不是所有的工作都使用大型模型，因此在本文的其余部分中，我们仍然使用 LM 来表示大语言模型。
+
+## 2 推理
+
+一般来说，推理是利用证据和逻辑作出推论的能力。推理可以分成多种类型的技能，如常识推理，数学推理，符号推理等。通常，推理涉及从推理链中推断出的结论，称为多步推理。在 LM 的背景下，我们将使用第 1 节提供的推理定义。先前的研究表明，LLM 可以解决简单的推理问题，但无法解决复杂的推理：因此，本节将重点介绍用于增强 LM 推理技能的各种策略。 LM 解决复杂推理问题的挑战之一是通过组合 LM 预测的正确答案来正确获得解决方案。例如，LM 可能正确预测名人的出生日期和死亡日期，但可能不能正确预测年龄。Press 等人（2022）将此差异称为 LM 的组合间隙。在本节的其余部分中，我们将讨论与三种流行的引出推理范例有关的作品。注意，Huang 和 Chang（2022）提出了关于语言模型推理的调查。Qiao 等（2022）也提出了一项关于推理的调查，尽管重点在于提示。由于我们目前的工作重点是结合工具进行推理，因此我们将给读者参考 Huang 和 Chang（2022）; Qiao 等（2022），以获得有关 LLM 推理的更深入的回顾。
+
+### 2.1 利用提示引导推理
+
+近年来，提示语言模型来解决各种下游任务已经成为主流范式（Brown et al.，2020）。在提示中，下游任务的例子被转换，以便将其表述为语言建模问题。提示通常采用以下两种形式之一：零样本，其中模型直接提示测试示例的输入；以及小样本，其中几个任务示例被附加在测试示例的输入之后。这种小样本提示也被称为上下文学习或少量学习。与“天真”提示（要求输入直接跟随输出/答案）相反，引导性提示鼓励语言模型通过遵循中间步骤来解决任务，然后才预测输出/答案。Wei et al.（2022c）表明，引导性提示在少量设置中使语言模型具备更好的推理能力。后来，Kojima 等（2022）零样本设置中也表明了类似的能力。我们将在下面的章节中详细讨论它们。
+
+```
+  Question: Roger has 5 tennis balls. He buys 2 more cans of tennis balls. Each can has 3 tennis
+  balls. How many tennis balls does he have now?
+  Answer: Roger started with 5 balls. 2 cans of 3 tennis balls each is 6 tennis balls. 5 + 6 = 11. The
+  answer is 11.
+  Question: The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many
+  apples do they have?
+  Answer:
+  <LM>
+```
+
+<small>图 1: 少量联想提示的一个例子。<LM>表示使用上面的提示调用 LM。</small>
+
+**小样本设置** Wei 等人（2022c）引入了一种用于 LM 的小样本提示技术-联想（CoT）。提示由任务的示例组成，后跟着输入的中间推理步骤，最终得出输出，如<em>图 1</em> 所示。<em>表 1</em> 显示 CoT 优于标准提示方法。Wei 等人（2022b）观察到小样本策略的成功随规模出现，而 Tay 等人（2022）补充说，在没有微调的情况下，LM 成功使用 CoT 通常需要 100B+参数，如 LaMDA（Thoppilan 等人，2022），PaLM（Chowdhery 等人，2022）或 GPT3（Brown 等人，2020；Ouyang 等人，2022），然后提出 UL2，一个可以执行 CoT 的 20B 开源模型。使用小样本联想提示，Minerva（Lewkowycz 等人，2022）在数学基准测试中取得了出色的成绩，如 GSM8K（Cobbe 等人，2021）。Wang 等人（2022c）进一步改进 CoT，通过自我一致性：从给定的语言模型中采样多种推理路径，并选择最一致的答案作为最终答案。Press 等人（2022）引入了 Self-ask，一种类似 CoT 的提示。它不是像<em>图 1</em> 中那样提供模型连续联想，而是在回答问题之前明确提出跟随问题，并依赖脚手架（例如“跟随问题：”或“所以最终答案是：”），以便答案更容易解析。作者在他们引入的旨在测量组合性差距的数据集上展示了 CoT 的改进。他们观察到，当增加模型的大小时，这种差距不会缩小。请注意，Press 等人（2022）专注于 2 跳问题，即模型只需要组合两个事实就可以得出答案的问题。有趣的是，Self-ask 可以很容易地与搜索引擎相结合（见第 3 节）。ReAct（Yao 等人，2022b）是另一种小样本提示方法，可以在推理步骤中查询三种工具：在维基百科中的搜索和查找，以及最终返回答案。 ReAct 将在下一节中更详细地讨论。
+
+**零样本设置** Kojima 等人(2022)将提示语言模型的推理思维的想法延伸到零样本提示上。尽管零样本提供了手头任务的示例，零样本只有一个提示，不是示例。这里，Kojima 等人(2022)只是在输入问题之前附加“让我们一步一步思考”，并证明零样本联想 对大型语言模型来说，在像 GSM8K 这样的推理任务上表现不错，尽管不如小样本联想。
+
+```
+  Question: The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many
+  apples do they have?
+  Answer: Let’s think step by step
+  <LM>
+```
+
+<small>图 2: 一个零样本联想的示例。<LM> 表示调用语言模型，并将上述提示作为输入。</small>
+
+| Model                                         | Accuracy (%) |
+| --------------------------------------------- | ------------ |
+| OpenAI (text-davinci-002)                     | 15.6         |
+| OpenAI (text-davinci-002) + CoT[1]            | 46.9         |
+| OpenAI (text-davinci-002) + CoT + Calculator  | 46.9         |
+| OpenAI (code-davinci-002)                     | 19.7         |
+| OpenAI (code-davinci-002) + CoT               | 63.1         |
+| OpenAI (code-davinci-002) + CoT + Calculator  | 65.4         |
+| GPT-3 175B + FT + CoT + Calculator            | 34.0         |
+| GPT-3 175B + FT + CoT + Calculator + Verifier | 55.0         |
+| PaLM 540B                                     | 17.0         |
+| PaLM 540B+CoT                                 | 54.0         |
+| PaLM 540B+CoT+Calculator                      | 58.0         |
+| PAL                                           | 72.0         |
+
+<small>表 1：在 GSM8K（一个流行的推理基准）上评估不同推理方法。FT 表示微调，CoT 表示联想。报告的准确性基于[1]：（Wei et al., 2022c）；[2]：（Cobbe et al., 2021）；[3]：（Chowdhery et al., 2022）；和[4]：（Gao et al., 2022）。 </small>
+
+### 2.2 递归提示
+
+一些尝试试图通过明确将问题分解为子问题，以分而治之的方式来求解问题，以提示中间推理步骤。这种递归方法对于复杂任务特别有用，因为组合泛化对于语言模型来说可能具有挑战性（Lake and Baroni, 2018; Keysers et al., 2019; Li et al., 2022a）。采用问题分解的方法可以将子问题独立地求解，然后将这些答案汇总以生成最终答案（Perez et al., 2020; Min et al., 2019），或者将子问题依次解决，其中下一个子问题的解决方案取决于前一个子问题的答案（Yang et al., 2022a; Zhou et al., 2022; Drozdov et al., 2022; Dua et al., 2022; Khot et al., 2022; Wang et al., 2022a; Wu et al., 2022b）。例如，在数学问题的背景下，从少到多的提示（Zhou et al.，2022）可以让语言模型比示例更难的问题更容易解决，通过将复杂问题分解为一系列子问题。它首先采用少量的提示将复杂的问题分解为子问题，然后依次解决提取的子问题，利用前一个子问题的解决方案来回答下一个。
+
+许多早期的尝试都采用远程监督（Perez 等，2020；Talmor 和 Berant，2018；Min 等，2019）来实现分解，就像 Zhou 等（2022）一样，许多最近的尝试都采用上下文学习来实现分解（Yang 等，2022a；Khot 等，2022；Dua 等，2022）。在这些尝试中，还有一些差异。例如，Drozdov 等（2022）是对 Zhou 等（2022）的后续工作，但是使用一系列的提示来执行输入的递归句法分析，而不是线性分解，并且通过各种启发式方法自动选择样本。Dua 等（2022）是与 Zhou 等（2022）同时发表的工作，但是将问题分解和回答阶段编织在一起，即下一个子问题预测可以访问先前的问题和答案，而不是独立于任何先前答案生成所有子问题。另一方面，Yang 等（2022a）使用基于规则的原则和插槽填充提示将问题转换为一系列的 SQL 操作。Khot 等（2022）也采用提示来分解为特定的操作，但是允许使用一组专用处理器来解决每个子问题，其中每个处理器都专门用于特定的子任务（例如检索）或子问题域（例如地理位置）。
+
+### 2.3 显式教导语言模型如何推理
+
+尽管提示方法取得了惊人的结果，但除了需要模型规模外，这些方法还有一些缺点。换句话说，它们需要发现引发例如逐步推理的提示，当涉及到新任务的少量支持时，人工提供示例。此外，提示在计算上也很昂贵，
+
+```
+  Prompt 0
+  Question: It takes Amy 4 minutes to climb to the top of a slide. It takes her 1 minute to
+  slide down. The water slide closes in 15 minutes. How many times can she slide before it closes?
+  <LM>
+    Answer: To solve “ How many times can she slide before it closes? ”, we need to first solve:
+    “ How long does each trip take? ”
+  </LM>
+  Prompt 1
+  It takes Amy 4 minutes to climb to the top of a slide. It takes her 1 minute to slide down.
+  The water slide closes in 15 minutes.
+  Subquestion 1: How long does each trip take?
+  <LM>
+    Answer 1: It takes Amy 4 minutes to climb and 1 minute to slide down. 4 + 1 = 5. So each trip
+    takes 5 minutes.
+  </LM>
+  Prompt 2
+  It takes Amy 4 minutes to climb to the top of a slide. It takes her 1 minute to slide down.
+  The slide closes in 15 minutes.
+  Subquestion 1: How long does each trip take?
+  Answer 1: It takes Amy 4 minutes to climb and 1 minute to slide down. 4 + 1 = 5. So each trip
+  takes 5 minutes.
+  Subquestion 2: How many times can she slide before it closes?
+  <LM>
+    Answer 2: The water slide closes in 15 minutes. Each trip takes 5 minutes. So Amy can slide 15 ÷
+    5 = 3 times before it closes.
+  </LM>
+```
+
+<small>图 3：递归提示示例。<LM>表示 LM 对提示的输出的开始，而</LM>表示结束。在提示 0 中，问题首先被分解成子问题。然后，依次将答案 2 到子问题 2 和答案 1 到子问题 1 输入到提示 2 和提示 1 中。每个阶段的提示的少数示例被省略。灵感来自 Zhou et al. (2022）中的图 1。</small>
+
+在长的提示的情况下，由于模型的上下文大小有限，很难从相对较多的示例中受益。最近的研究表明，可以通过训练 LM 来绕过这些问题，就像人类一样，当需要多个步骤才能正确解决任务时使用工作内存。 Nye 等人（2021）引入了粘贴板的概念，允许 LM 更好地执行多步计算任务，例如加法或代码执行。更确切地说，在训练时，LM 会看到输入任务，如加法，以及相关的中间步骤：该集合称为粘贴板。在测试时，模型需要从输入任务中预测步骤和答案。粘贴板与上述提示策略不同，它们是针对具有相关计算步骤的示例任务进行微调的。然而，请注意 Nye 等人（2021）也进行了少数实验。 Taylor 等人（2022）在大型 LM 预训练的背景下使用类似的方法：Galactica 在一系列科学数据的语料库上进行训练，其中包括一些文档，其中步骤推理被特殊标记<work>和</work>包裹，以模仿内部工作内存。在推理时，可以要求模型通过<work>标记明确激活这种推理模式。 Taylor 等人（2022）认为，当在推理示例上进行训练时，还会出现一个问题：从互联网上策划的训练数据中可能缺少许多中间推理步骤，因为人类不会明确地写出所有的推理步骤。为了解决缺少步骤的问题，作者创建了具有详细推理过程的数据集。图 4 中展示了 Galactica 预训练期间看到的提示示例。
+
+近期的其他研究通过微调改善了预训练 LM 的推理能力。Zelikman 等人（2022）提出了一种自举方法来生成大量未标记数据的推理步骤（也称为理性），并使用该数据来微调模型。Yu 等（2022）表明，与预训练模型相比，标准 LM 微调在推理任务上可以带来更好的推理能力，如文本蕴涵、演绎推理和类比推理。此外，几种指令微调方法（Ouyang 等，2022；Chung 等，2022；Iyer 等，2022；Ho 等，2022）采用链式思维风格的提示，在 BBH（Srivastava 等，2022）和 MMLU（Hendrycks 等，2021）等流行基准测试中取得了显著改进。有趣的是，所有这些工作都表明，小规模的指令微调模型可以比未微调的大规模模型表现更好，特别是在跟随指令很重要的任务中。
+
+```
+  Question: A needle 35 mm long rests on a water surface at 20◦C. What force over and above the
+  needle’s weight is required to lift the needle from contact with the water surface? σ = 0.0728m.
+  <work>
+    σ = 0.0728N/m
+    σ = F/L
+    0.0728 = F/(2 × 0.035)
+    F = 0.0728(2 × 0.035)
+    calculate.py
+    “‘
+      f = 0.0728*(2*0.035)
+      with open("output.txt", "w") as file:
+        file.write(str(round(f, 5)))
+    ”’
+    «run: calculate.py»
+    «read: output.txt»
+    0.0051
+  </work>
+  Answer: F = 0.0051N
+```
+
+<small>图 4：来自 Taylor 等人（2022）的工作记忆示例。 在 LM 预训练期间，可以看到此提示及其输出</small>
+
+### 2.4 抽象推理的比较与局限性
+
+总的来说，推理可以被看作是将问题分解为一系列的子问题，可以采用迭代或递归的方式。探索尽可能多的推理路径是很困难的，也不能保证中间步骤的有效性。一种产生可靠推理轨迹的方法是为每个推理步骤生成问题和对应答案的对（Creswell and Shanahan，2022），但仍然没有保证这些中间步骤的正确性。总的来说，推理 LM 试图通过自身来改善其上下文，以便有更多机会输出正确的答案。LM 到底在多大程度上利用所述推理步骤来支持最终预测仍然不太了解（Yu et al.，2022）。在许多情况下，一些推理步骤可能会受到可以避免的错误的影响，这会影响输出的正确性。例如，在推理步骤中的非平凡数学运算错误可能导致最终错误的输出。已知的事实也是如此，例如某一年份总统的身份。上述部分研究（Yao et al.，2022b; Press et al.，2022）已经利用了简单的外部工具，如搜索引擎或计算器来验证中间步骤。更一般地，本综述的下一节将重点介绍 LM 可以查询的各种工具，以增加输出正确答案的机会。
+
+## 3 使用工具和自主行动
+
+最近的语言模型研究允许模型访问并不一定存储在其权重中的知识，比如一个给定的事实知识。更精确地说，像精确计算或信息检索这样的任务可以由外部模块（如 python 解释器或搜索引擎）处理，由模型查询，在这方面，模型使用工具。此外，当工具对外部世界产生影响时，我们可以说 LM 执行一个自主行动。将工具和自主行动以特殊令牌的形式轻松包含在语言建模与变换器的结合中，是一个非常方便的特性。
+
+### 3.1 在模型中调用另一个模型
+
+在许多情况下，工具可以是另一个模型或者语言模型本身。
+
+**LM 迭代调用**。作为优化单一优化提示的替代方案，反复调用模型以迭代地完善其输出是一种更直观改善结果的方法。Re3（Yang 等，2022c）利用这一想法自动生成超过 2000 个字的故事。更确切地说，Re3 首先通过提示 GPT3（Brown 等，2020）生成计划，设置和角色。然后，Re3 迭代地将计划和当前故事状态的信息注入到新的 GPT3 提示中以生成新的故事段落。在 Yang 等人（2022b）的改进中，使用了一个学习的详细大纲，以迭代方式将简短的初始大纲扩展到任何所需的粒度。其他以无监督方式教会模型迭代改进文本的方法从应用程序（如填充空白（Shen 等，2020;Donahue 等人，2020）到将高斯矢量序列去噪为字符矢量（Li 等，2022c））的范围极大。例如，PEER（Schick 等，2022）是一个从 LM-Adapted T5（Raffel 等，2020）初始化的模型，并在维基百科上进行了编辑，学习了如何进行编辑以及如何为下一步做准备。因此，PEER 能够通过反复计划和编辑来开发文章，如图 5 所示。迭代方法还具有允许将复杂任务（如故事和文章生成）分解为较小子任务的额外好处。重要的是，除了 PEER 之外，上述工作均采用启发式来调用 LM。未来的研究方向可能是允许 LM 自我反复调用，直到输出满足某些标准。Wu 等（2022a）不仅只是反复调用单个模型，而是提出了一个交互式界面，用于将多个 LM 连接在一起，其中一个步骤的输出作为下一步的输入。这样的贡献允许非 AI 专家改进无法由单一 LM 适当处理的复杂任务的解决方案。
+
+**利用其他模态**。以文本形式的提示可能不包含足够的上下文来正确执行给定的任务。例如，如果以严肃或反讽的语气提出一个问题，它不需要相同的答案。将各种模态纳入背景可能对聊天机器人等语言模型有用。正如 Hao 等人（2022）和 Alayrac 等人（2022）最近所证明的，语言模型也可以用作具有不同模式预训练的通用接口。例如，Hao 等人（2022）采用了一些能处理各种模态（如视觉和语言）的预先训练的编码器，并将它们连接到作为通用任务层的 LM。该界面和模块编码器通过半因果语言建模目标联合被预训练。该方法结合了因果和非因果语言建模的优点，实现了上下文学习和开放式生成，以及编码器的简单微调。类似地，Alayrac 等人（2022）引入了 Flamingo，这是一系列可以处理任何交错的文本和图像数据序列的视觉语言模型（VLMs）。Flamingo 模型在包含交错文本和图像的大规模多模态网络语料库上进行训练，使它们能够显示多模态任务的上下文少样本学习能力。只需少量的注释示例，Flamingo 就可以轻松适应生成任务（如视觉问答和字幕）和分类任务（如多选视觉问答）。曾等人（2022）引入了 Socratic Models，这是一个模块化框架，可以零点构建在不同模式上预先训练的各种模型。这使得模型可以相互交换信息，并在不需要额外的微调的情况下获得新的多模态能力。Socratic Models 为机器人感知和规划、自我中心视频的自由形式问答、多模态辅助对话等新应用提供了可能，它可以通过与外部 API 和数据库（如搜索引擎）进行交互。有趣的是，还可以结合其他模式（如图像）来提高中等规模 LM（1B）的推理能力（张等，2023）。
+
+```
+  Iteration 0
+  Text: Brittney Reese (born September 9, 1986 in Gulfport, Mississippi) is an American long
+  jumper.
+  <LM>
+    Plan: Remove incorrect information
+    Edit: Brittney Reese (born September 9, 1986 in Gulfport, Mississippi) is an American long jumper.
+  </LM>
+  Iteration 1
+  Text: Brittney Reese (born September 9, 1986) is an American long jumper.
+  <LM>
+    Plan: Add information about her career
+    Edit: Brittney Reese (born September 9, 1986) is an American long
+    jumper , who competed at the 2008 Summer Olympics, and is a 4-time World Champion .
+  </LM>
+  Iteration 2
+  Text: Brittney Reese (born September 9, 1986) is an American long jumper, who competed at the
+  2008 Summer Olympics, and is a 4-time World Champion.
+  <LM>
+    Plan: Add her birthplace
+    Edit: Brittney Reese (born September 9, 1986 in Inglewood, California ) is an American long
+    jumper, who competed at the 2008 Summer Olympics, and is a 4-time World Champion.
+  </LM>
+```
+
+<string>图 5：使用 PEER（Schick 等，2022）的迭代提示示例，该 LM 被训练以在每个步骤中生成一个行动计划并编辑输入文本。可以重复此过程，直到生成的文本不再需要进行进一步的更新。 <LM>表示 LM 对提示的输出的开始，而</LM>表示 LM 对提示的输出的结束。</string>
+
+### 3.2 信息检索
+
+可以通过神经缓存最近输入（Grave et al., 2017; Merity et al.，2017）等记忆单元来增强语言模型，以提高其做出推理的能力。另外，可以通过从外部知识源检索，将以自然语言形式的知识完全从语言模型中分离出来。记忆增强策略可以帮助语言模型避免产生非事实性和过时的信息，并减少实现与大型语言模型相当性能所需的参数数量。
+
+#### 3.2.1 检索增强语言模型
+
+**稀疏检索和稠密检索** 存在两种可用于增强 LM 的检索器：稠密和稀疏。稀疏检索器使用文档和查询的稀疏词袋表示（Robertson 和 Zaragoza，2009）。相比之下，稠密神经检索器使用从神经网络获得的稠密查询和稠密文档向量（Asai 等，2021）。两种类型的检索器都可以评估文档与信息检索查询的相关性。这可以通过（i）检查精确的术语重叠或（ii）计算相关概念之间的语义相似性来完成。稀疏检索器在第一个子问题上表现出色，而稠密检索器可能在第二个方面更好（Luan 等，2021）。
+
+**在检索的文档里调节 lm**。各种工作通过将检索到的文档附加到当前上下文（Chen 等，2017; Clark 和 Gardner，2017; Lee 等，2019; Guu 等，2020; Khandelwal 等，2020; Lewis 等，2020; Izacard 和 Grave，2020; Zhong 等，2022; Borgeaud 等，2022; Izacard 等，2022）来增强 LM。尽管检索文档以执行问答的想法并不新鲜，但检索增强的 LM 最近在 Q&A 以外的其他知识密集任务中表现出强大的性能。与使用显着更多参数的较大 LM 相比，这些提案缩小了性能差距。REALM（Guu 等，2020）是第一种端到端地联合培训检索系统与编码器 LM 的方法。RAG（Lewis 等，2020）联合微调检索器与序列到序列模型。Izacard 和 Grave（2020）引入了 Seq2Seq 体系结构的修改，以有效处理许多检索到的文档。Borgeaud 等人（2022）专注于自回归 LM，称为 RETRO，并表明，将大规模语料库与预先训练的冷冻 BERT 嵌入用于检索程序，可以消除进一步训练检索器的需要，同时在不同的下游任务上获得与 GPT3 相当的性能。RETRO 使用的方法允许将检索集成到现有的预训练 LM 中。Atlas（Izacard 等，2022）联合训练检索器与序列到序列模型，以获得具有强大的少量射击学习能力的 LM，尽管比许多其他大型 LM 小几个数量级。表 2 比较了所讨论的模型的主要特征，特别是检索结果如何整合到 LM 的上下文中。在所有这些情况下，查询对应于提示。
+
+| Model                         | # Retrieval tokens | Granularity | Retriever training | Retrieval integration |
+| ----------------------------- | ------------------ | ----------- | ------------------ | --------------------- |
+| REALM (Guu et al., 2020)      | O(10\*\*9 )        | Prompt      | End-to-End         | Append to prompt      |
+| RAG (Lewis et al., 2020)      | O(10\*\*9 )        | Prompt      | Fine-tuning        | Cross-attention       |
+| RETRO (Borgeaud et al., 2022) | O(10\*\*12 )       | Chunk       | Frozen             | Chunked cross-attn.   |
+| Atlas (Izacard et al., 2022)  | O(10\*\*9 )        | Prompt      | Fine-tuning        | Cross-attention       |
+
+<small>表 2：数据库检索增强语言模型之间的比较。受《Borgeaud et al. (2022)》表 3 的启发</small>
+
+最近的研究（He 等人，2022 年；Trivedi 等人，2022 年）提出将检索器与通过思维链推理（CoT）提示相结合，以增强 LM。 He 等人（2022 年）使用 CoT 提示生成包含解释和预测对的推理路径。然后，检索知识以支持解释，并且选择主要由证据支持的预测。此方法不需要任何其他培训或微调。 Trivedi 等人（2022）提出了一种信息检索思维链接方法（IRCoT），其由多步 QA 中的检索与 CoT 交织而成。这个想法是使用检索来指导 CoT 推理步骤，反过来，使用 CoT 推理来指导检索步骤。
+在所有这些工作中，系统地为每个查询调用检索器，以获取相应的文档来增强 LM。这些方法还假设意图包含在查询中。可以通过提供搜索任务（指令）的自然语言描述来消除意图，如 Asai 等人（2022）提出的那样，以增强查询。此外，LM 可以偶尔查询检索器-当提示建议它这样做时-这在下一节中讨论。
+
+#### 3.2.2 搜索引擎查询
+
+一个仅仅接受查询的语言模型可以被看作是一个被动的代理。然而，一旦它被赋予了根据提示生成查询的能力，语言模型就可以扩大它的行动空间，变得更加主动。
+
+LaMDA 是一种针对对话应用设计的类似代理的 LM 的例子。作者事先在对话数据以及其他公共网络文档上训练该模型。此外，为了确保模型具有事实依据，并增强其会话能力，它被增强了检索、计算器和翻译器（Thoppilan et al，2022）。此外，为了提高模型的安全性，LaMDA 被注解数据精细调整。另一个例子是 BlenderBot（Shuster et al.，2022b），其中 LM 决定根据提示生成查询。在这种情况下，提示对应于调用搜索引擎工具的指令。 BlenderBot 能够进行开放领域的对话，它已经部署在一个公共网站上，以通过在循环中与人类的持续学习来进一步改进模型。类似地，ReAct 使用少量提示，教会 LM 如何使用不同的工具，如在维基百科中搜索和查找，并完成以返回答案（Yao et al，2022b）。类似地，Komeili 等人（2021）; Shuster 等人（2022a）提出了一种模型，它可以根据上下文学习生成网络搜索查询，然后根据搜索结果来生成响应。 ReAct 交叉推理和行动，允许两者之间更大的协同效应，并改善语言和决策任务的性能。 ReAct 在不同类型的语言和决策任务（如问答，事实验证或网络和家庭导航）上表现良好。
+
+一般来说，推理可以通过更好地推断和预测来改善决策，而使用外部工具的能力可以通过从知识库或环境中收集额外信息来改进推理。
+
+#### 3.2.3 搜索和浏览网页
+
+可以训练可以在互联网上导航以追求特定目标（如搜索信息或购买物品）的代理。例如，WebGPT（Nakano et al.，2021）是一个基于 LM 的代理，它可以与自定义的基于文本的网络浏览环境进行交互，以回答长格式问题。与其他只学习如何查询检索器或搜索引擎（如 LaMDA（Thoppilan et al.，2022）或 BlenderBot（Shuster et al.，2022b））的模型不同，WebGPT 学习与网络浏览器进行交互，从而允许它进一步细化初始查询或根据与工具的交互执行其他操作。更具体地说，WebGPT 可以搜索互联网、导航网页、跟随链接并引用来源（请参见表 3 以获取可用操作的完整列表）。通过访问互联网，代理能够增强其问答能力，甚至超越了由人类评估员确定的人类能力。最佳模型是通过对人类示范进行微调 GPT3，然后对预测人类偏好的奖励模型进行拒绝采样来获得的。类似地，WebShop（Yao et al.，2022a）是一个模拟电子商务网站，代理人必须根据给定的指示查找、定制和购买产品。为此，代理人必须理解和推理嘈杂的文本，遵循复杂的指令，重新组合查询，导航不同类型的网页，在需要时采取行动收集额外信息，并做出策略性决策以实现其目标。观察和行动都用自然语言表达，使环境非常适合基于 LM 的代理。该代理由一个基于行为克隆的人类示范（即问题-人类演示对）的 LM 微调以及使用硬编码奖励函数的强化学习组成，该函数验证购买的物品是否与给定描述匹配。虽然还有其他关于网络导航和计算机控制的工作，但大多数假设典型的人机界面，它将计算机屏幕的图像作为输入并输出键盘命令，以解决数字任务（Shi 等，2017; Gur 等，2019; 2021; Toyama 等，2021; Humphreys 等，2022; Gur 等，2022）。由于我们的调查专注于基于 LM 的代理，我们不会详细讨论这些作品。
+
+#### 3.2.4 通过符号模块和代码解释器计算
+
+尽管最近的语言模型能够正确分解许多问题，但它们在处理大量数据或执行复杂的算术运算时仍然容易出错。例如，vanilla GPT3 无法执行超出分布的加法，即对比训练过程中所见的数字更大的数字进行加法，即使提供带有注释步骤的示例（Qian et al.，2022）。在强化学习的背景下，transformer 代理的行动空间配备了符号模块，以执行例如算术或导航（Wang et al.，2022b）。 Mind's Eye（Liu et al.，2022b）调用物理引擎来支持语言模型物理推理。更精确地说，使用文本到代码 LM 来生成物理引擎的渲染代码。相关的模拟结果以自然语言形式附加到 LM 提示。因此，Mind's Eye 能够在一些特定的物理推理任务上胜过最大的 LM，同时具有两个数量级的参数。PAL（Gao et al.，2022）依赖于大型 LM 的 CoT 提示来分解符号推理、数学推理或算法任务，以及每个步骤的 Python 代码（请参见图 6）。然后，将 Python 步骤转移到 Python 解释器以输出最终结果。它们在几个基准测试上优于 CoT 提示，尤其是在 GSM-HARD 上，这是一个使用更大数字的 GSM8K 版本。有关 PAL 和其他模型在 GSM8K 上的比较，请参见表 1。类似地，Drori 等人（2022）; Chen 等人（2022）提示 Codex（Chen 等，2021）来生成基于可执行代码的解决方案，以解决大学级问题，数学问题或金融 QA。在定理证明的背景下，吴等（2022c）使用大型 LM 自动形式化非正式的数学竞赛问题陈述，以 Isabelle 或 HOL 为基础。姜等（2022）生成正式的证明草图，然后将其提交给证明人。
+
+```
+  Question: Roger has 5 tennis balls. He buys 2 more cans of tennis balls. Each can has 3 tennis
+  balls. How many tennis balls does he have now?
+  Answer: Roger started with 5 balls.
+  tennis_balls = 5
+  2 cans of 3 tennis balls each is
+  bought_balls = 2 * 3
+  tennis balls. The answer is
+  answer = tennis_balls * bought_balls
+  Question: The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many
+  apples do they have?
+  Answer:
+<LM>
+```
+
+<small>图 6：PAL（Gao 等，2022 年）快速提示的一个例子。<LM>调用上面的提示中的 LM。提示基于图 1 中显示的思维链，从中提取的部分用绿色突出显示。在 PAL 中，提示还包含可执行的 python 代码，该代码执行操作并将结果存储在答案变量中。当用新问题提示时，PAL 会生成可执行代码和解释的混合。通过执行代码并输出（答案）来获得答案。</small>
+
+### 3.3 在虚拟与现实世界中自主行动
+
+虽然之前的工具收集外部信息以提高 LM 的预测或在给定任务上的表现，其他工具允许 LM 在虚拟或物理世界中行动。为此，LM 需要通过学习可及性来植入现实世界，即在给定状态下哪些自主行动是可能的，以及它们对世界的影响。
+
+**控制虚拟代理**。最近的研究表明，语言模型（LM）可以通过输出可以在相应环境（无论是模拟还是真实世界）中由计算机执行的函数来控制虚拟代理，在模拟的 2D 和 3D 环境中。例如，Li 等（2022b）通过将目标和观察表示为嵌入序列，并预测下一个动作，对预先训练的 GPT2（Radford 等，2019）进行微调，用于顺序决策问题。该框架可以在不同领域实现强大的组合泛化，包括模拟家庭环境。这表明，语言模型可以产生不仅适用于语言建模，而且还适用于顺序目标和计划的有用表示，从而可以改善超越语言处理的任务的学习和泛化。同样，Huang 等（2022a）研究是否有可能利用 LM 捕获的世界知识，以自然语言（如“制作早餐”）的形式响应高级任务进行特定操作。这项工作是第一个证明，如果 LM 足够大并且正确提示，它可以将高级任务分解为一系列简单的命令，而无需进行额外的训练。但是，代理有权访问预先确定的一组操作，因此不能在环境中执行所有自然语言命令。为了解决这个问题，作者建议使用余弦相似度函数将 LM 提出的命令映射到代理可执行的动作。该方法在虚拟家庭环境中进行评估，并显示出与不使用附加映射执行任务的 LM 生成的计划相比，执行任务的能力有所提高。虽然这些作品已经证明了 LM 用于控制虚拟机器人的有用性，但以下段落覆盖了有关物理机器人的工作。Zeng 等（2022）将语言模型（LM）与视觉语言模型（VLM）以及预先训练的以语言为条件的策略相结合，用于控制模拟机械臂。 LM 用作多步规划器，将高级任务分解为子目标，而 VLM 用于描述场景中的对象。将两者都传递给策略，然后根据指定的目标和观察到的世界状态执行操作。Dasgupta 等（2023）在 PycoLab 环境中使用 7B 和 70B Chinchilla 作为计划者，以便代理以行动和观察结果。此外，记者模块将动作和观察从像素转换为文本空间。最后，Carta 等（2023）中的代理使用 LM 生成基于文本的任务的动作策略。通过在线 RL 的交互式学习可以将 LM 内部表示与环境接轨，从而部分偏离了在预训练期间获得的关于文本统计表面结构的知识。
+
+| Command                        | Effect                                                         |
+| ------------------------------ | -------------------------------------------------------------- |
+| search <query>                 | Send <query> to the Bing API and display a search results page |
+| clicked on link <link ID>      | Follow the link with the given ID to a new page                |
+| find in page: <text>           | Find the next occurrence of <text> and scroll to it            |
+| quote: <text>                  | If <text> is found in the current page, add it as a reference  |
+| scrolled down <1, 2, 3>        | Scroll down a number of times                                  |
+| scrolled up <1, 2, 3>          | Scroll up a number of times                                    |
+| Top                            | Scroll to the top of the page                                  |
+| back                           | Go to the previous page                                        |
+| end: answer                    | End browsing and move to answering phase                       |
+| end: <nonsense, controversial> | End browsing and skip answering phase                          |
+
+<small>Table 3: The actions WebGPT can perform, taken from Nakano et al. (2021).</small>
+
+**控制物理机器人**。Liang 等（2022）利用 LM 依据自然语言命令，通过少量演示提示模型来编写机器人策略代码。通过结合经典逻辑结构和引用外部库（例如用于算术运算），LM 可以创建表现出空间几何推理、推广到新指令和为模糊描述提供精确值的策略。该方法的有效性在多个真实机器人平台上得到证明。LM 编码关于世界的常识知识，可用于让机器人遵循用自然语言表达的复杂高层次指令，但缺乏上下文接地，使其在现实世界中进行决策时也难以使用。为了缓解这个问题，Ahn 等（2022）提出教机器人一些低级技能（如“找到海绵”、“拿起苹果”、“去厨房”），并学会预测它们在任何给定状态下的可行性。然后，可以使用 LM 将复杂的高层指令拆分为机器人技能库中的较简单的子目标。然后，LM 可以为机器人选择最有价值且可行的技能来执行。这样，机器人就可以利用自己的物理能力执行 LM 的指令，而 LM 提供有关任务的语义知识。该作者在各种真实任务上测试了他们的方法，称为 SayCan，发现它可以在各种环境中成功完成复杂的抽象指令。为了解决接地问题，Chen 等（2021）提出了 NLMap-SayCan，一个将上下文信息集成到 LM 规划者中的框架。NLMap 使用视觉语言模型（VLM）在生成上下文条件计划之前创建可查询的开放词汇场景表示。将上下文信息纳入代理人决策的另一种方法是利用环境中的语言反馈，如成功检测、物体识别、场景描述或人机交互（Huang et al.，2022b）。这样可以提高机器人控制任务的性能，如在真实厨房中进行桌面重排和移动操作。最后，RT-1（Brohan et al.，2022）利用大规模、多样化的与任务无关的机器人数据集来学习一个模型，可以遵循 700 多个自然语言指令，并将其推广到新任务、新环境和新物体。RT-1 利用 DIAL（Xiao et al.，2022），一种通过视觉语言对齐模型 CLIP（Radford et al.，2019）自动为机器人演示标记语言标签的方法。
+
+## 4 推理学习、使用工具以及自主行动
+
+前面的部分回顾了可以用来给 语言模型 赋予推理能力和工具的增强方法。我们现在将提出如何教会它们这些能力的方法。
+
+### 4.1 监督
+
+通过给人工智能提供人类编写的行为演示来教导它们理解和行动的一种直接方法。这样做的常见方法是 (i) 通过 Brown 等人 (2020) 首次提出的小样本提示，在推理期间给出几个示例作为附加上下文，但不进行参数更新，或 (ii) 通过常规基于梯度的学习。通常，在具有语言建模目标 (Ouyang et al.，2022; Chung et al.，2022) 的初始预训练之后进行监督学习；Taylor et al. (2022) 的最新研究是一个例外，他们建议将预训练文本与包含某种显式推理的人类注释示例混合，用特殊标记标记。一些作者使用监督微调作为中间步骤，然后从人类反馈中进行强化学习 (Nakano et al.，2021; Ouyang et al.，2022)；有关这些方法的深入讨论，请参见 4.2 节。
+
+**小样本提示** 给语言模型提供少量以上下文示例演示所需行为的人工编写是教它们推理（Wei 等，2022c;b; Suzgun 等，2022; Press 等，2022）和教它们使用工具和自主行动（Gao 等，2022; Lazaridou 等，2022; Yao 等，2022b）的常用方法。这主要是由于它的易用性：少量提示只需要少量的手动标记示例，并且不需要模型微调，可以实现非常快的实验；此外，它还可以通过更改提供的提示，将同一模型用于不同的推理任务和工具（Brown 等，2020; Wei 等，2022c）。另一方面，只有当模型达到一定规模时，才能通过几个上下文示例执行推理（Wei 等，2022b; Chung 等，2022），其性能严重取决于示例呈现的格式（Jiang 等，2020; Min 等，2022），少量示例的选择以及它们的顺序（Kumar 和 Talukdar，2021; Lu 等，2022; Zhou 等，2022）。另一个问题是，可提供的监督量受到符合语言模型上下文窗口的示例数量的限制；如果一种新行为如此困难以至于需要多于一把示例，或者我们有一个大的可能空间，希望模型学习，这就尤为重要。此外，由于没有进行权重更新，语言模型的推理和行动能力完全取决于提供的提示；删除它也会删除这些能力。
+
+**微调** 作为小样本提示的替代方法，可以通过用标准的监督学习来更新其参数来引出预训练的 LM 的推理和行动能力。这种方法既可用于教模型使用工具，包括搜索引擎（Komeili 等，2021 年；Shuster 等，2022b），网络浏览器（Nakano 等，2021 年），计算器和翻译系统（Thoppilan 等，2022），以及提高推理能力（Chung 等，2022）。对于后者，推理的示例通常用于更大的指令调整上下文（Mishra et al。，2021; Sanh et al。，2022; Wang et al。，2022d; Ouyang et al。，2022），在更一般的情况下，基于人类标记的示例改进了 LM 的按照指令的能力。示例通常是从众包工人收集的。在某些情况下，它们可以自动获得：Nye 等人（2021）使用执行跟踪作为推理的监督，而 Andor 等人（2019）则使用启发式来收集教授语言模型使用计算器的监督数据。
+
+**提示预训练** 可能存在预训练阶段后微调的风险是，LM 可能会远离原始分布，过度拟合微调过程中提供的示例的分布。为了缓解这个问题，Taylor 等人（2022）提议将预训练数据与标记的推理演示混合，类似于早期的工作将预训练数据与各种下游任务的示例混合（Raffel 等人，2020）；然而，与单独的微调阶段相比，这种混合的确切收益尚未得到实证研究。与此相同的目标，Ouyang 等人（2022）和 Iyer 等人（2022）在微调阶段中包括了预训练的示例，
+
+**引导式学习** 作为标准微调的替代方案，一些作者提出使用引导式技术（例如 Yarowsky，1995; Brin，1999）来利用某种间接监督。这通常通过在最终预测之前提示 LM 以少量设置进行推理或行动来实现；然后丢弃其行动或推理步骤未导致正确最终预测的示例。例如，STaR（Zelikman 等，2022）在常见意义问答设置中提示模型生成思维链序列，但只保留那些导致给定问题正确最终答案的链接。最后，将原始 LM 或另一个（通常较小）模型在所有正确的示例上进行微调。因此，引导式结合了少量提示的数据效率与微调的一些优势，可以成功应用于教授模型推理（Shridhar 等，2022）和使用工具（Parisi 等，2022）。
+
+### 4.2 强化学习
+
+监督式学习通过人类创建的提示有效地教模型推理和行动。然而，获取这样的数据是困难和昂贵的。人类偏好数据，如排名或喜欢/不喜欢，比全面演示更容易、更快、更便宜。例如，人类评价摘要的质量可能比从头开始写一篇摘要容易得多。这些数据不能在监督环境中使用，但可以在强化学习（RL）的背景下提供奖励（Sutton and Barto，2018）。
+
+强化学习已经证明可以通过基于反馈的与环境的交互来学习复杂行为，并已被用于玩游戏（Mnih 等，2015；Silver 等，2016；Vinyals 等，2019；Team 等，2021；Bakhtin 等，2022）或控制机器人（Gu 等，2017；Kalashnikov 等，2018；Akkaya 等，2019；Lee 等，2020）等应用中。在用强化学习训练语言模型时，语言模型可以被视为一个学习策略（即在模型词汇表中采样下一个令牌的分布）以优化某个奖励函数的代理。大多数现有的关于强化学习和 ALM 的工作都聚焦于教会语言模型如何行动，而不是推理。最接近学习如何通过强化学习推理的工作是 STaR（Zelikman 等，2022），这是一种基于自举的方法，在第 4.1 节中有详细介绍。
+
+强化学习是训练 LM 以行动和使用工具的自然框架，因为其中许多工具是不可微分的（例如搜索引擎、计算器或程序语言解释器）。此外，许多从与工具交互中受益的任务，类似于顺序决策问题（例如，导航到网页浏览器以购买指定的产品），并具有明确的奖励（例如，如果模型购买正确的产品，则为 1，否则为 0）。虽然有一些早期的作品专注于可以与外部工具接口的模型，但它们采用了专门的工具相关架构（Adolphs 等，2022; Buck 等，2018; Nogueira 和 Cho，2017; Zhong 等，2018）。我们在这里不讨论它们，因为我们调查的主要重点是标准通用 LM 架构的行动和推理能力，并用语言建模目标进行训练。
+
+**奖励函数硬编码** 当教授 LM 如何使用外部工具时，标准做法是通过硬编码的奖励函数生成的标量奖励来更新模型的权重。这个任务相关的函数是基于工具输出计算的。LM 代理人接收一个文本输入，在 RL 术语中对应于环境的当前状态，并生成一系列令牌，或者在 RL 术语中称为动作。优化通过诸如 REINFORCE（Williams，1992），PPO 和类似变体（Schulman 等，2017; Ramamurthy 等，2022）之类的策略梯度算法完成。
+
+最初关于用强化学习训练语言模型使用工具的工作主要集中在搜索和获取额外的事实信息上。这类信息检索任务的常用工具是文档检索器、问答系统和搜索引擎。前两者是从预定义的文本文档集中检索文档，或者根据一些输入查询检索答案。但是，搜索引擎允许更结构化的交互式搜索，例如，模型可以进一步细化初始查询，或者基于工具的最初输出执行其他操作。例如，Wu 等人(2022d)通过强化学习教授语言模型来重写查询，以便将其发送到现成的检索器来进行会话问答。奖励函数是基于后续会话回合和检索段落之间令牌重叠的对比检索准确度度量。另一个例子是刘等人(2022a)的工作：RAINIER 是一个能够生成与上下文相关的问题的语言模型，这些问题被优化以查询冷冻的问答系统。在将大型 GPT3(Brown et al.，2020)模型精炼到较小的 T5 模型(Raffel et al.，2020)之后，RAINIER 使用 PPO(Schulman et al.，2017)进行微调，反馈来自 Khashabi 等人(2020)的预先训练的问答模型。有趣的是，这项工作是语言模型学习如何使用另一个冻结的神经模型作为外部工具的例子。
+
+杨等（2022a）利用强化学习（RL）让一个语言模型在虚拟商店中导航，并根据颜色和价格等属性购买物品。与 WebGPT（Nakano 等，2021）类似，该模型以文本格式给出目标，并允许执行有限的操作。在多任务学习设置中，基于用户生成的指令提示，模型需要同时理解查询并浏览网页以搜索正确的产品。奖励是一个基于模型购买的商品描述与给定的购物指令的相似性的硬编码文本匹配函数。优化使用 A3C 算法（Mnih 等，2016），这是标准 actor-critic 方法的一种变体。尽管模型仍落后于人类专家，但他们发现，在接受人类演示训练后，使用 RL 进行微调可以提高性能。这为给予语言模型与外部工具交互能力的奖励学习带来了额外的证据。
+
+当与搜索引擎或文档检索器交互时，模型可以用额外的输入来增强其当前的上下文，但是在与知识库等工具交互时，通常需要处理结构化信息。Dognin 等人（2021）训练 LM 以学习如何与基于图的知识库进行交互，通过执行 text2graph 和 graph2text 任务。该模型基于 T5 架构（Raffel et al.，2020），并使用 vanilla 策略梯度算法 REINFORCE（Williams，1992）进行训练，可以实现文本和图形的双向生成，并在与文本相关的知识库自动构建任务以及相反任务上显示出最先进的性能。基于 T5 的代理被训练直接最大化 graph2text 指标，如 BLEU（Papineni 等人，2002a），METEOR（Banerjee 和 Lavie，2005）和 chrF++（Popović，2017），或 text2graph 指标，如 F1，精确度和召回率。
+
+**人工反馈** 测量机器生成文本的质量是一项非常复杂的工作，因为它可能会因上下文、个人偏好和用户意图而有所不同。例如，在某些情境中，用户可能需要有创意的写作，而在其他情境中，可能仅需要实事求是的信息。模型的输出应该相应地受到评判，并能够捕捉到这种意图差异。已经开发出基于启发式的多种指标，例如 BLEU（Papineni et al.，2002b）和 ROUGE（Lin，2004），用于将模型输出与参考文本进行比较。然而，它们无法完全捕捉到与人类意图相关的生成质量。人工反馈可以被利用来提高机器生成文本的质量，例如用于对话代理（Xu et al.，2022）。特别是，强化学习来自人工（RLHF）（Knox and Stone，2008; MacGlashan et al.，2017; Christiano et al.，2017; Warnell et al.，2018）旨在通过使用人类偏好作为评估指标和目标函数来优化语言模型，从而克服这些局限性。使用 RLHF 可以使语言模型与复杂的人类偏好和值得更加紧密地结合，这些偏好和值得难以用硬编码的奖励函数来捕捉。
+RLHF 通过使用预先训练的 LM 来生成文本，然后通过人类评估，例如，对同一提示进行排名。然后收集该数据以学习一个奖励模型，该模型可以预测给定任何生成的文本的标量奖励。奖励捕获了人类在评价模型输出时的偏好。最后，使用 RL 策略梯度算法（如 PPO）对此奖励模型进行 LM 优化（Schulman 等，2017）。RLHF 可以直接应用于通用 LM，该 LM 通过自我监督学习进行预先训练。然而，对于更复杂的任务，模型的生成可能不够好。在这种情况下，通常在使用少量专家示例对相应的下游任务进行初始监督微调阶段之后，才应用 RLHF（Ramamurthy 等，2022; Ouyang 等，2022; Stiennon 等，2020）。
+一个成功的用于教导 LM 使用外部工具的强化学习类型模型（RLHF）的例子源自 Nakano 等人（2021）的 WebGPT（在 3.2.3 中讨论），这是一种能够使用搜索引擎回答问题并提供支持此类答案的模型。该工具界面是一个简化的基于文本的网络浏览器。该模型架构基于 GPT3（Brown 等人，2020），并训练以用自然语言表达浏览动作。该模型在问题-人类示例对上进行微调，然后通过 RLHF 进行进一步优化。在两个 QA 数据集中，WebGPT 的答案比人类生成的答案更受青睐，而且比原始的 vanilla GPT3 模型更实际。同样，Menick 等人（2022）提出了 GopherCite，一种基于 Gopher 的 LM 模型（Rae 等人，2021），使用 RLHF 进行微调，在回答问题时可以引用支持的证据，并在不确定时绝不回答。与 WebGPT 相比，GopherCite 使用信息检索外部模块而不是网络浏览器来查找相关信息，从而提高其问题回答能力。除了学习使用外部工具外，RLHF 还被证明在许多语言生成任务中都很有用，从摘要（Ziegler 等人，2019; Wu 等人，2021; Stiennon 等人，2020）到训练更有帮助、无害、准确的助手（Glaese 等人，2022; Cohen 等人，2022; Ouyang 等人，2022; Bai 等人，2022）。由于这些作品不重点训练模型进行推理和行动，因此不在本调查的范围内。
+
+### 4.3 局限性和未来方向
+
+尽管最近有算法进展和性能改进，当前的强化学习方法仍然存在不稳定性问题，使得训练困难而且缓慢（Ramamurthy 等，2022; Snell 等，2022）。虽然监督学习一直是强调语言模型在特定任务上的有效且稳健的方法（Mishra 等，2021; Sanh 等，2022; Wang 等，2022b），但这假设存在大量的专家演示，这些演示可能很难而且代价高昂地获得。这对于需要推理和行动的任务尤其如此，我们没有可用的数据。解决缺乏质量数据问题的可能解决方案可能来自自举法和离线强化学习。它们通过更稳定的训练来结合“两种世界的最佳”，即使没有大量示例来解决感兴趣的任务，也能够通过反馈和交互来改进。最近的研究（Zelikman 等，2022; Snell 等，2022）表明，这种方法可以达到超越专家演示的性能或改进初始模型代数的性能。例如，Snell 等（2022）引入了一种名为 ILQL 的新离线强化学习算法，该算法通过估计值函数，并利用其优化 LM 代数，从静态数据集中学习演示及其相关奖励。 ILQL 将在线强化学习灵活优化框架与从现有监督学习数据集中学习的简单性和能力相结合，在对话任务上取得良好的性能。如第 4 节所述，Zelikman 等（2022）采用自举方法教授 LM 推理，可以视为政策梯度算法的近似。最近，Schick 等（2023）提出了 Toolformer，一种以自我监督的方式教授使用工具的模型。这是通过首先利用现有 LM 的小样本能力来采样大量潜在的工具使用来实现的。例如，该模型可以调用计算器 API 来增强其上下文，例如“在 1400 名参与者中，400 名（或[Calculator（400/1400）→ 0.29] 29％通过了测试。”然后，对模型进行微调，根据它们是否减少未来令牌生成的困惑度来筛选它们。该方法可以使用多种工具（例如日历、计算器或信息检索系统）。但是，它只在使用单个工具的有限设置中进行了测试，因为工具使用的示例是独立采样的。我们相信，研究如何将此方法扩展到更复杂的多步骤工具使用是基于 LM 的通用代理的有希望的研究方向。
+
+## 5 讨论
+
+**远离语言建模** 培训过的模型是否可以执行中间推理步骤或访问互联网仍然是纯粹的语言建模？事实上，在自然语言处理中，语言建模（Bahl 等，1983）通常被定义为预测给定上下文中缺失令牌的任务，并且在预训练模型中被非常重视。但是，已经开发了几种技术来后续微调模型（Ziegler 等，2019；Wei 等，2022a；Sanh 等，2022）来执行各种自然语言任务，这可以被视为逐渐离开传统的语言建模。特别是，用于微调 LM 的文本不仅仅来自互联网，而是被设计成明确注入某种程度的 grounding。最近 Goldberg（2023）提出的一个论点是“从这些直接指令中学习可能比从非指令数据中学习要容易得多”。Giannou 等（2023）的最新研究可以支持这一论点，从理论上和实践中都表明，即使是浅层的循环变换器也可以遵循指令并被编程为通用计算机。直观地，文本是复杂中间思想的结果，这些思想是隐藏的。因此，用于监督的表面文本可以被视为仅代表这些思想的日志，因此缺乏上下文。相反，使用面向任务的监督数据，我们可以通过中间步骤明确接地答案。在这方面，所得到的模型可能不被视为语言模型。但是，任务仍然是仅根据文本预测下一个令牌。这个论点对 ALM 来说更为正确，因为它们可以增强其上下文。特别是，工具增强的 LM 实际上可能会失去分配给下一个令牌的概率的能力-这是语言建模的核心：而一个常规的 LM 可以很容易地计算 p（xt | x1，...，xt-1），而工具增强的 LM 必须考虑所有可能的工具使用，例如 p（xt | x1，...，xt-1）=∑c p（c）·p（xt | x1，...，xt-1，c），其中 c 是一个工具，可能是不可行的。出于这些原因，我们在本综述中称之为增强语言模型（ALMs），以区别传统意义上的语言建模。
+
+**在记忆和查询工具之间做出折衷**。是宁愿记住模型权重中的信息，还是利用外部工具？有些情况显然需要外部工具，例如计算 213443344。然而，许多信息都是众所周知的事实，比如“埃菲尔铁塔位于巴黎”，或者 1+2=3，不应该被转移。当学习有关单词的表示时，记忆不仅是可取的，而且与推理深度相关（Hayes 等，2014）。ALM 能否足够细微地决定什么时候使用工具？可以将每个工具的计算预算集成到损失中，让模型学会如何做到这一点吗？
+
+**推广非参数框架**。信息检索增强的 LM（如 RETRO（Borgeaud et al。，2022）和 Atlas（Izacard et al。，2022））的背后动机是通过依赖外部非参数存储器来开发一类需要更少参数的 LM。迄今为止，使用其他类型的工具（如代码解释器或计算器）的动机有所不同：例如，Cobbe 等（2021）使用计算器来提高需要算术的任务的准确性。然而，工具增强的 LM 的范式可以被看作是非参数框架的概括。事实上，除了信息检索外，LM 还可以将任何类型的能力（如微积分）委托给相应的外部工具。通过避免在权重中存储罕见访问的知识，工具增强的 LM 可能具有更好的规模定律，从而产生较小的模型，仍然具有其最大对应物的能力。结合从外部世界访问最新信息从而避免频繁更新的可能性，非参数推广为 ALMs 带来了巨大的好处。
+
+**一条通往自主机器智能的道路？** LeCun（2022）提出了一个自主智能代理的概念。我们现在讨论 ALMs 在多大程度上实现了这一想法。在 LeCun（2022）中，代理人由世界模型和短期记忆组成的不同模块组成。本质上，代理人通过基于其世界模型、感知模块和短期记忆的执行者模块采取行动，以便最小化某些成本。该代理人还配备了一个配置器模块，用于在当前任务中调节世界模型、感知、执行者和成本。
+
+翻译成这个框架，ALM 的权重基本上包含了世界模型、感知和行动模块。短期记忆可以用 ALM 的上下文或提示来识别。基于它对上下文和世界模型的感知，ALM 将通过输出特殊标记采取行动，并感知结果。配置器模块仍然是神秘的，但可能是隐含的：它可以看作是 ALM 上下文所引起的条件，例如最初的提示，如“你是一个善良友善的助手”。最后，这个框架中的成本是固定的，可以是 ALM 的困惑度混合了与推理和使用外部工具相关的计算成本。
+
+然而，LeCun（2022）中代理的一个重要特征是其计划的能力，它通过将复杂任务分解成子任务来定义：在 ALM 的背景下，计划类似于推理，由于不清楚 LM 是否如第 2 节中所述的那样，所以有点滥用术语。LeCun（2022）提出，要实现推理（在计划的术语下），需要将能量最小化，从而形成一系列动作的层次结构。由于 ALM 只在令牌级别执行预测，因此它们不能按照 LeCun（2022）的观点进行推理，可能仍然局限于系统 1 任务，即依靠反射而不是逻辑和思考。通过推动当前方法，是否可以获得系统 2，即相反的能力，仍然不确定。例如，LM 在其最大序列长度之外缺乏全局一致性：作为一个例子，使用相同的 LM 进行的两次不同的讨论会导致不一致。当解决复杂问题（需要执行大量的子目标，例如写一篇研究论文）时，这是一个很大的限制，因为在论文的写作过程中，你有一个初始的心理状态，包括当前的结果和论文的角度。这个过程不是线性的，是由不同的交互产生的，例如，阅读相关作品时产生新思路。心理状态虽然会随着整个过程而更新，但仍然保持不变，这样我们就能够保持对大局的把握。虽然更多的计算和更大的输入尺寸可以减轻这个问题，但另一种解决方案可能是赋予 LM 适当的组件。在这方面，一种本质上使 LM 与 LeCun（2022）建议的能量函数一致的模型架构可能构成一个有前途的方向。
+
+最后，我们的调查将语言模型作为一个通用智能体的核心组成部分，它可以用自然语言推理并与外部工具交互。沿着这些线路，Wang 等人（2023）将语言模型用作中心规划师，用于在 Minecraft 游戏中解决任务。通过反馈回路和子目标执行的中间检查，LM 可以解释目标执行者的错误并完善其原始计划。然而，我们注意到基于 LM 的控制器可能不是通用智能体的唯一可行方法。最近在外交游戏（Bakhtin 等人，2022）中的研究，由于其复杂的规划和推理动态，一直是人工智能代理的长期挑战，采用一种特别的计划模型，通过自我播放和强化学习进行训练。在这里，LM 用于与其他玩家交互，因此作为一个基于当前游戏状态的外部通信模块。这提供了一种将 LM 视为专门用于与人类沟通的代理的另一种观点，尽管是在外交游戏的限制环境中。我们相信（A）LM 将在下一代强大的交互系统中扮演重要角色，无论是作为模块系统的中心控制器还是作为需要与编排程序交互的仅语言模块，它们都是一个尚待解决的研究问题。
+
+**增强语言模型的好处**。总的来说，ALM 比传统的 LM 提供了许多潜在的优势。
+
+- 真实性：由于当前 LM 的训练目标可以说是引发了似乎合理但不实际的信息生成，因此通过一些工具来支撑预测应该会导致更可靠的模型。然而，尽管当配备计算器的 LM 时，这个结论是直接的，但是出乎意料的是，在信息检索增强的 LM 中几乎没有证据（Krishna 等，2021）。其中一个原因是网络上存在大量的不真实的信息。调查这个方向将至关重要，以使 LM 可靠和真实。
+
+- 估计和减少不确定性：通过让模型推理和访问额外的信息来延伸最大似然概念，有助于模型学习他们知道什么以及不知道什么。一些论文表明，语言模型已经得到了良好的校准（Kadavath 等，2022），即其预测的准确性与相应的可能性之间存在高度的相关性。这种不确定性可以直接被 ALM 利用，知晓何时依赖自身权重，或者何时查询外部工具以获得更准确的预测。
+
+- 可解释性：深度学习模型通常被认为是黑匣子，其预测难以解释。使用中间推理步骤并依赖工具有助于使 ALMs 更具可解释性。特别是，我们可以期望能够引用用于组成答案的来源是至关重要的。然而，一些作品 Lewkowycz 等人（2022）指出，思维链即使中间推理没有任何意义，也可以导致正确的预测，指出研究人员探索这一方向的明显挑战。
+
+- 能力增强：拥有更强悍推理能力和工具的自然语言模型（ALM）比标准语言模型（LM）更有帮助，能解决更多的任务。例如，与 Python 解释器连接的 ALM 可以代表用户运行代码和实验，而普通的 LM 无法做到这一点。此外，推理和行为之间可能出现反馈循环，其中每一项能力都会进一步改善另一项（Yao 等，2022b）。与外部工具、实体和环境的交互可以提高推理能力，因为它可以让 ALM 收集更多信息，并使其融入到现实世界中。同样，推理也可以提高 ALM 的决策能力，例如何时以及如何使用某个工具。
+
+**道德问题**。ALM 引发了新的潜在的道德问题。基于工具的 LM 预测看起来可能更可信和权威，但实际上其中许多仍然是不正确的。此外，我们可以期待这种现象会随着 LM 以类似于人类的方式推理而增强（Dasgupta 等，2022），使其更难检测出错误。虽然这些问题适用于大多数工具，但有必要区分被动工具和主动工具。前者收集 LM 上下文的外部信息，而后者（例如让 LM 控制搜索引擎）允许它在没有人类验证的情况下在虚拟或物理世界中采取行动，从而扩大了 LM 使用可能产生有害后果的范围。我们正在从单独生成文本的被动 LM 转向在现实世界中行动的 ALM。在这种情况下，上述道德问题可能会引起更进一步的共鸣，因为 ALM 将与越来越多的工具和环境相连。
+
+## 6 结论
+
+本调查介绍了使用更好的推理和工具来增强语言模型的作品。在大多数作品中，语言模型用额外的相关信息来增强其上下文，以便进行缺失标记预测。由于许多增强都是非参数化的，即涉及调用外部的可能是非参数化的模块，因此这些语言模型可以说是从经典语言建模范式中脱离出来，因此我们决定将它们称为增强语言模型。尽管有几项工作都集中在语言模型的推理或行为技能上，但大多数工作都依赖于人类的注释，这可能不是可扩展的，例如手工制作的少量提示或来自人类反馈的强化学习。如何以完全自我监督的方式为语言模型提供有意义的增强仍然是一个悬而未决的研究问题。此外，由于很少有作品将推理和工具结合起来，未来的努力应该研究这两种技能之间的集成和富有成效的交互。总的来说，我们相信研究增强语言模型是朝着能够实现复杂和有用的人机交互的深度学习系统下一代的一个有前景而又令人兴奋的研究方向。
+
+## 致谢
+
+我们感谢马可·巴罗尼对草案提供宝贵反馈。
+
+## 参考
+
+- Deborah Cohen, Moonkyung Ryu, Yinlam Chow, Orgad Keller, Ido Greenberg, Avinatan Hassidim, Michael
+  Fink, Yossi Matias, Idan Szpektor, Craig Boutilier, et al. Dynamic planning in open-ended dialogue using
+  reinforcement learning. arXiv preprint arXiv:2208.02294, 2022.
+- Antonia Creswell and Murray Shanahan. Faithful reasoning using large language models. arXiv preprint
+  arXiv:2208.14271, 2022.
+- Antonia Creswell, Murray Shanahan, and Irina Higgins. Selection-inference: Exploiting large language
+  models for interpretable logical reasoning. arXiv preprint arXiv:2205.09712, 2022.
+- Ishita Dasgupta, Andrew K Lampinen, Stephanie CY Chan, Antonia Creswell, Dharshan Kumaran, James L
+  McClelland, and Felix Hill. Language models show human-like content effects on reasoning. arXiv preprint
+  arXiv:2207.07051, 2022.
+- Ishita Dasgupta, Christine Kaeser-Chen, Kenneth Marino, Arun Ahuja, Sheila Babayan, Felix Hill, and Rob
+  Fergus. Collaborating with language models for embodied reasoning, 2023.
+- Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional
+  transformers for language understanding. In Proceedings of the North American Chapter of the Association
+  for Computational Linguistics (NAACL), 2019.
+- Pierre L Dognin, Inkit Padhi, Igor Melnyk, and Payel Das. Regen: Reinforcement learning for text and
+  knowledge base generation using pretrained language models. Conference on Empirical Methods in Natural
+  Language Processing (EMNLP), 2021.
+- Chris Donahue, Mina Lee, and Percy Liang. Enabling language models to fill in the blanks. In Proceedings
+  of the Annual Meeting of the Association for Computational Linguistics (ACL), 2020.
+- Iddo Drori, Sarah Zhang, Reece Shuttleworth, Leonard Tang, Albert Lu, Elizabeth Ke, Kevin Liu, Linda
+  Chen, Sunny Tran, Newman Cheng, et al. A neural network solves, explains, and generates university
+  math problems by program synthesis and few-shot learning at human level. Proceedings of the National
+  Academy of Sciences, 119(32), 2022.
+- Andrew Drozdov, Nathanael Schärli, Ekin Akyürek, Nathan Scales, Xinying Song, Xinyun Chen, Olivier
+  Bousquet, and Denny Zhou. Compositional semantic parsing with large language models. arXiv preprint
+  arXiv:2209.15003, 2022.
+- Dheeru Dua, Shivanshu Gupta, Sameer Singh, and Matt Gardner. Successive prompting for decomposing
+  complex questions. Conference on Empirical Methods in Natural Language Processing (EMNLP), 2022.
+  Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon, Pengfei Liu, Yiming Yang, Jamie Callan, and Graham
+  Neubig. Pal: Program-aided language models, 2022.
+- Angeliki Giannou, Shashank Rajput, Jy-yong Sohn, Kangwook Lee, Jason D Lee, and Dimitris Papailiopou-
+  los. Looped transformers as programmable computers. arXiv preprint arXiv:2301.13196, 2023.
+- Amelia Glaese, Nat McAleese, Maja Trębacz, John Aslanides, Vlad Firoiu, Timo Ewalds, Maribeth Rauh,
+  Laura Weidinger, Martin Chadwick, Phoebe Thacker, Lucy Campbell-Gillingham, Jonathan Uesato, Po-
+  Sen Huang, Ramona Comanescu, Fan Yang, Abigail See, Sumanth Dathathri, Rory Greig, Charlie Chen,
+  Doug Fritz, Jaume Sanchez Elias, Richard Green, Soňa Mokrá, Nicholas Fernando, Boxi Wu, Rachel
+  Foley, Susannah Young, Iason Gabriel, William Isaac, John Mellor, Demis Hassabis, Koray Kavukcuoglu,
+  Lisa Anne Hendricks, and Geoffrey Irving. Improving alignment of dialogue agents via targeted human
+  judgements. arXiv preprint arXiv:2209.14375, 2022.
+- Yoav Goldberg. Some remarks on large language models, 2023. URL
+  https://gist.github.com/yoavg/59d174608e92e845c8994ac2e234c8a9.
+  Edouard Grave, Armand Joulin, and Nicolas Usunier. Improving neural language models with a continuous
+  cache. In International Conference on Learning Representations (ICLR), 2017.
+- Shixiang Gu, Ethan Holly, Timothy Lillicrap, and Sergey Levine. Deep reinforcement learning for robotic
+  manipulation with asynchronous off-policy updates. In 2017 IEEE international conference on robotics
+  and automation (ICRA), pages 3389–3396, 2017.
+- Izzeddin Gur, Ulrich Rueckert, Aleksandra Faust, and Dilek Hakkani-Tur. Learning to navigate the web.
+  International Conference on Learning Representations (ICLR), 2019.
+- Izzeddin Gur, Natasha Jaques, Kevin Malta, Manoj Tiwari, Honglak Lee, and Aleksandra Faust. Adversarial
+  environment generation for learning to navigate the web. arXiv preprint arXiv:2103.01991, 2021.
+  Izzeddin Gur, Ofir Nachum, Yingjie Miao, Mustafa Safdari, Austin Huang, Aakanksha Chowdhery, Sharan
+  Narang, Noah Fiedel, and Aleksandra Faust. Understanding html with large language models. arXiv
+  preprint arXiv:2210.03945, 2022.
+- Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Mingwei Chang. Retrieval augmented language
+  model pre-training. In International Conference on Machine Learning (ICML), 2020.
+- Yaru Hao, Haoyu Song, Li Dong, Shaohan Huang, Zewen Chi, Wenhui Wang, Shuming Ma, and Furu Wei.
+  Language models are general-purpose interfaces. arXiv preprint arXiv:2206.06336, 2022.
+- Brett K Hayes, Evan Heit, and Caren M Rotello. Memory, reasoning, and categorization: parallels and
+  common mechanisms. Frontiers in Psychology, 5:529, 2014.
+- Hangfeng He, Hongming Zhang, and Dan Roth. Rethinking with retrieval: Faithful large language model
+  inference. arXiv preprint arXiv:2301.00303, 2022.
+- Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt.
+  Measuring massive multitask language understanding. In Advances in Neural Information Processing
+  Systems (NeurIPS), 2021.
+- Namgyu Ho, Laura Schmid, and Se-Young Yun. Large language models are reasoning teachers, 2022.
+  Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford,
+  Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al. Training compute-optimal
+  large language models. arXiv preprint arXiv:2203.15556, 2022.
+- Jie Huang and Kevin Chen-Chuan Chang. Towards reasoning in large language models: A survey. arXiv
+  preprint arXiv:2212.10403, 2022.
+- Wenlong Huang, Pieter Abbeel, Deepak Pathak, and Igor Mordatch. Language models as zero-shot planners:
+  Extracting actionable knowledge for embodied agents. arXiv preprint arXiv:2201.07207, 2022a.
+- Wenlong Huang, Fei Xia, Ted Xiao, Harris Chan, Jacky Liang, Pete Florence, Andy Zeng, Jonathan Tompson,
+  Igor Mordatch, Yevgen Chebotar, et al. Inner monologue: Embodied reasoning through planning with
+  language models. arXiv preprint arXiv:2207.05608, 2022b.
+- Peter C Humphreys, David Raposo, Tobias Pohlen, Gregory Thornton, Rachita Chhaparia, Alistair Muldal,
+  Josh Abramson, Petko Georgiev, Adam Santoro, and Timothy Lillicrap. A data-driven approach for
+  learning to control computers. In International Conference on Machine Learning (ICML), 2022.
+- Srinivasan Iyer, Xi Victoria Lin, Ramakanth Pasunuru, Todor Mihaylov, Daniel Simig, Ping Yu, Kurt
+  Shuster, Tianlu Wang, Qing Liu, Punit Singh Koura, Xian Li, Brian O’Horo, Gabriel Pereyra, Jeff Wang,
+  Christopher Dewan, Asli Celikyilmaz, Luke Zettlemoyer, and Ves Stoyanov. Opt-iml: Scaling language
+  model instruction meta learning through the lens of generalization. arXiv preprint arXiv:2212.12017, 2022.
+- Gautier Izacard and Edouard Grave. Leveraging passage retrieval with generative models for open domain
+  question answering. arXiv preprint arXiv:2007.01282, 2020.
+- Gautier Izacard, Patrick Lewis, Maria Lomeli, Lucas Hosseini, Fabio Petroni, Timo Schick, Jane Dwivedi-Yu,
+  Armand Joulin, Sebastian Riedel, and Edouard Grave. Atlas: Few-shot learning with retrieval augmented
+  language models. arXiv preprint arXiv:2208.03299, 2022.
+- Albert Q Jiang, Sean Welleck, Jin Peng Zhou, Wenda Li, Jiacheng Liu, Mateja Jamnik, Timothée Lacroix,
+  Yuhuai Wu, and Guillaume Lample. Draft, sketch, and prove: Guiding formal theorem provers with
+  informal proofs. arXiv preprint arXiv:2210.12283, 2022.
+- Zhengbao Jiang, Frank F. Xu, Jun Araki, and Graham Neubig. How can we know what language models
+  know? Transactions of the Association for Computational Linguistics, 8, 2020.
+- Saurav Kadavath, Tom Conerly, Amanda Askell, Tom Henighan, Dawn Drain, Ethan Perez, Nicholas Schiefer,
+  Zac Hatfield-Dodds, Nova DasSarma, Eli Tran-Johnson, Scott Johnston, Sheer El-Showk, Andy Jones, Nel-
+  son Elhage, Tristan Hume, Anna Chen, Yuntao Bai, Sam Bowman, Stanislav Fort, Deep Ganguli, Danny
+  Hernandez, Josh Jacobson, Jackson Kernion, Shauna Kravec, Liane Lovitt, Kamal Ndousse, Catherine
+  Olsson, Sam Ringer, Dario Amodei, Tom Brown, Jack Clark, Nicholas Joseph, Ben Mann, Sam McCan-
+  dlish, Chris Olah, and Jared Kaplan. Language models (mostly) know what they know. arXiv preprint
+  arXiv:2207.05221, 2022.
+- Dmitry Kalashnikov, Alex Irpan, Peter Pastor, Julian Ibarz, Alexander Herzog, Eric Jang, Deirdre Quillen,
+  Ethan Holly, Mrinal Kalakrishnan, Vincent Vanhoucke, et al. Qt-opt: Scalable deep reinforcement learning
+  for vision-based robotic manipulation. arxiv e-prints, page. arXiv preprint arXiv:1806.10293, 2018.
+  Daniel Keysers, Nathanael Schärli, Nathan Scales, Hylke Buisman, Daniel Furrer, Sergii Kashubin, Nikola
+  Momchev, Danila Sinopalnikov, Lukasz Stafiniak, Tibor Tihon, et al. Measuring compositional generaliza-
+  tion: A comprehensive method on realistic data. In International Conference on Learning Representations,
+
+2019.
+
+- Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke Zettlemoyer, and Mike Lewis. Generalization through
+  Memorization: Nearest Neighbor Language Models. In International Conference on Learning Representa-
+  tions (ICLR), 2020.
+- Daniel Khashabi, Sewon Min, Tushar Khot, Ashish Sabharwal, Oyvind Tafjord, Peter Clark, and Han-
+  naneh Hajishirzi. Unifiedqa: Crossing format boundaries with a single qa system. arXiv preprint
+  arXiv:2005.00700, 2020.
+- Tushar Khot, Harsh Trivedi, Matthew Finlayson, Yao Fu, Kyle Richardson, Peter Clark, and Ashish
+  Sabharwal. Decomposed prompting: A modular approach for solving complex tasks. arXiv preprint
+  arXiv:2210.02406, 2022.
+- W Bradley Knox and Peter Stone. Tamer: Training an agent manually via evaluative reinforcement. In 2008
+  7th IEEE international conference on development and learning, pages 292–297. IEEE, 2008.
+  Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language
+  models are zero-shot reasoners. In Advances in Neural Information Processing Systems (NeurIPS), 2022.
+  Mojtaba Komeili, Kurt Shuster, and Jason Weston. Internet-augmented dialogue generation. ArXiv,
+  abs/2107.07566, 2021.
+- Kalpesh Krishna, Aurko Roy, and Mohit Iyyer. Hurdles to progress in long-form question answering. arXiv
+  preprint arXiv:2103.06332, 2021.
+- Sawan Kumar and Partha Talukdar. Reordering examples helps during priming-based few-shot learning. In
+  Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021, pages 4507–4518, Online,
+  August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.findings-acl.395. URL
+  https://aclanthology.org/2021.findings-acl.395.
+- Brenden Lake and Marco Baroni. Generalization without systematicity: On the compositional skills of
+  sequence-to-sequence recurrent networks. In International conference on machine learning, pages 2873–
+
+2882. PMLR, 2018.
+
+- Guillaume Lample, Marie-Anne Lachaux, Thibaut Lavril, Xavier Martinet, Amaury Hayat, Gabriel Ebner,
+  Aurélien Rodriguez, and Timothée Lacroix. Hypertree proof search for neural theorem proving. In Ad-
+  vances in Neural Information Processing Systems (NeurIPS), 2022.
+- Angeliki Lazaridou, Elena Gribovskaya, Wojciech Stokowiec, and Nikolai Grigorev. Internet-augmented
+  language models through few-shot prompting for open-domain question answering, 2022. URL
+  https://arxiv.org/abs/2203.05115.
+- Yann LeCun. A path towards autonomous machine intelligence, 2022.
+  Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, and Marco Hutter. Learning quadrupedal
+  locomotion over challenging terrain. Science robotics, 5(47):eabc5986, 2020.
+- Kenton Lee, Ming-Wei Chang, and Kristina Toutanova. Latent retrieval for weakly supervised open domain
+  question answering. arXiv preprint arXiv:1906.00300, 2019.
+- Hector Levesque, Ernest Davis, and Leora Morgenstern. The winograd schema challenge. In Thirteenth
+  international conference on the principles of knowledge representation and reasoning, 2012.
+- Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich
+  Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-
+  augmented generation for knowledge-intensive nlp tasks. In Advances in Neural Information Processing
+  Systems (NeurIPS), 2020.
+- Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Ramasesh,
+  Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy
+  Gur-Ari, and Vedant Misra. Solving quantitative reasoning problems with language models, 2022.
+- Belinda Li, Jane Yu, Madian Khabsa, Luke Zettlemoyer, Alon Halevy, and Jacob Andreas. Quantifying
+  adaptability in pre-trained language models with 500 tasks. In Proceedings of the 2022 Conference of the
+  North American Chapter of the Association for Computational Linguistics: Human Language Technologies,
+  pages 4696–4715, Seattle, United States, July 2022a. Association for Computational Linguistics. doi:
+  10.18653/v1/2022.naacl-main.346. URL https://aclanthology.org/2022.naacl-main.346.
+  Shuang Li, Xavier Puig, Yilun Du, Clinton Wang, Ekin Akyurek, Antonio Torralba, Jacob Andreas, and Igor
+  Mordatch. Pre-trained language models for interactive decision-making. arXiv preprint arXiv:2202.01771,
+  2022b.
+- Xiang Lisa Li, John Thickstun, Ishaan Gulrajani, Percy Liang, and Tatsunori B Hashimoto. Diffusion-lm
+  improves controllable text generation. arXiv preprint arXiv:2205.14217, 2022c.
+- Jacky Liang, Wenlong Huang, Fei Xia, Peng Xu, Karol Hausman, Brian Ichter, Pete Florence, and Andy
+  Zeng. Code as policies: Language model programs for embodied control. arXiv preprint arXiv:2209.07753,
+
+2022.
+
+- Chin-Yew Lin. Rouge: A package for automatic evaluation of summaries. In Text summarization branches
+  out, pages 74–81, 2004.
+- Jiacheng Liu, Skyler Hallinan, Ximing Lu, Pengfei He, Sean Welleck, Hannaneh Hajishirzi, and Yejin
+  Choi. Rainier: Reinforced knowledge introspector for commonsense question answering. arXiv preprint
+  arXiv:2210.03078, 2022a.
+- Ruibo Liu, Jason Wei, Shixiang Shane Gu, Te-Yen Wu, Soroush Vosoughi, Claire Cui, Denny Zhou, and
+  Andrew M Dai. Mind’s eye: Grounded language model reasoning through simulation. arXiv preprint
+  arXiv:2210.05359, 2022b.
+- Yao Lu, Max Bartolo, Alastair Moore, Sebastian Riedel, and Pontus Stenetorp. Fantastically ordered prompts
+  and where to find them: Overcoming few-shot prompt order sensitivity. In Proceedings of the 60th Annual
+  Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 8086–8098,
+  Dublin, Ireland, May 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-long.556.
+  URL https://aclanthology.org/2022.acl-long.556.
+- Yi Luan, Jacob Eisenstein, Kristina Toutanova, and Michael Collins. Sparse, Dense, and Attentional Rep-
+  resentations for Text Retrieval. Transactions of the Association for Computational Linguistics, 9:329–345,
+  04 2021. ISSN 2307-387X. doi: 10.1162/tacl_a_00369. URL https://doi.org/10.1162/tacl_a_00369.
+  James MacGlashan, Mark K Ho, Robert Loftin, Bei Peng, Guan Wang, David L Roberts, Matthew E Taylor,
+  and Michael L Littman. Interactive learning from policy-dependent human feedback. In International
+  Conference on Machine Learning, pages 2285–2294. PMLR, 2017.
+- John McCarthy et al. Programs with common sense. RLE and MIT computation center Cambridge, MA,
+  USA, 1960.
+- Jacob Menick, Maja Trebacz, Vladimir Mikulik, John Aslanides, Francis Song, Martin Chadwick, Mia Glaese,
+  Susannah Young, Lucy Campbell-Gillingham, Geoffrey Irving, et al. Teaching language models to support
+  answers with verified quotes. arXiv preprint arXiv:2203.11147, 2022.
+- Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. Pointer sentinel mixture models. In
+  International Conference on Learning Representations (ICLR), 2017.
+- Sewon Min, Victor Zhong, Luke Zettlemoyer, and Hannaneh Hajishirzi. Multi-hop reading comprehension
+  through question decomposition and rescoring. In Proceedings of the 57th Annual Meeting of the Associa-
+  tion for Computational Linguistics, pages 6097–6109, 2019.
+- Sewon Min, Xinxi Lyu, Ari Holtzman, Mikel Artetxe, Mike Lewis, Hannaneh Hajishirzi, and Luke Zettle-
+  moyer. Rethinking the role of demonstrations: What makes in-context learning work?, 2022. URL
+  https://arxiv.org/abs/2202.12837.
+- Swaroop Mishra, Daniel Khashabi, Chitta Baral, and Hannaneh Hajishirzi. Natural instructions: Bench-
+  marking generalization to new tasks from natural language instructions. arXiv preprint arXiv:2104.08773,
+
+2021.
+
+- Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei A. Rusu, Joel Veness, Marc G. Bellemare, Alex
+  Graves, Martin Riedmiller, Andreas K. Fidjeland, Georg Ostrovski, Stig Petersen, Charles Beattie, Amir
+  Sadik, Ioannis Antonoglou, Helen King, Dharshan Kumaran, Daan Wierstra, Shane Legg, and Demis
+  Hassabis. Human-level control through deep reinforcement learning. Nature, 518(7540):529–533, February
+
+2015. ISSN 00280836. URL http://dx.doi.org/10.1038/nature14236.
+
+- Volodymyr Mnih, Adrià Puigdomènech Badia, Mehdi Mirza, Alex Graves, Tim Harley, Timothy P. Lillicrap,
+  David Silver, and Koray Kavukcuoglu. Asynchronous methods for deep reinforcement learning. In Pro-
+  ceedings of the 33rd International Conference on International Conference on Machine Learning - Volume
+  48, ICML’16, page 1928–1937. JMLR.org, 2016.
+- Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu, Long Ouyang, Christina Kim, Christopher Hesse,
+  Shantanu Jain, Vineet Kosaraju, William Saunders, et al. Webgpt: Browser-assisted question-answering
+  with human feedback. arXiv preprint arXiv:2112.09332, 2021.
+- Rodrigo Nogueira and Kyunghyun Cho. Task-oriented query reformulation with reinforcement learning. In
+  Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing, pages 574–583,
+  Copenhagen, Denmark, September 2017. Association for Computational Linguistics. doi: 10.18653/v1/
+  D17-1061. URL https://aclanthology.org/D17-1061.
+- Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari, Henryk Michalewski, Jacob Austin, David Bieber,
+  David Dohan, Aitor Lewkowycz, Maarten Bosma, David Luan, Charles Sutton, and Augustus Odena.
+  Show your work: Scratchpads for intermediate computation with language models. arXiv preprint
+  arXiv:2112.00114, 2021.
+- Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang,
+  Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller,
+  Maddie Simens, Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. Training
+  language models to follow instructions with human feedback. arXiv preprint arXiv:2203.02155, 2022.
+- Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. Bleu: a method for automatic evaluation of
+  machine translation. In Proceedings of the Annual Meeting of the Association for Computational Linguistics
+  (ACL), 2002a.
+- Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. Bleu: a method for automatic evaluation
+  of machine translation. In Proceedings of the 40th annual meeting of the Association for Computational
+  Linguistics, pages 311–318, 2002b.
+- Aaron Parisi, Yao Zhao, and Noah Fiedel. Talm: Tool augmented language models. arXiv preprint
+  arXiv:2205.12255, 2022.
+- Ethan Perez, Patrick Lewis, Wen-tau Yih, Kyunghyun Cho, and Douwe Kiela. Unsupervised question
+  decomposition for question answering. In Proceedings of the 2020 Conference on Empirical Methods in
+  Natural Language Processing (EMNLP), 2020.
+- Maja Popović. chrF++: words helping character n-grams. In Proceedings of the Second Conference on
+  Machine Translation, pages 612–618. Association for Computational Linguistics, 2017.
+  Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt, Noah A. Smith, and Mike Lewis. Measuring and
+  narrowing the compositionality gap in language models, 2022.
+- Jing Qian, Hong Wang, Zekun Li, Shiyang Li, and Xifeng Yan. Limitations of language models in arithmetic
+  and symbolic induction, 2022.
+- Shuofei Qiao, Yixin Ou, Ningyu Zhang, Xiang Chen, Yunzhi Yao, Shumin Deng, Chuanqi Tan, Fei Huang,
+  and Huajun Chen. Reasoning with language model prompting: A survey, 2022.
+  Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, et al. Language models
+  are unsupervised multitask learners, 2019.
+- Jack W. Rae, Sebastian Borgeaud, Trevor Cai, Katie Millican, Jordan Hoffmann, Francis Song, John
+  Aslanides, Sarah Henderson, Roman Ring, Susannah Young, Eliza Rutherford, Tom Hennigan, Jacob
+  Menick, Albin Cassirer, Richard Powell, George van den Driessche, Lisa Anne Hendricks, Maribeth Rauh,
+  Po-Sen Huang, Amelia Glaese, Johannes Welbl, Sumanth Dathathri, Saffron Huang, Jonathan Uesato,
+  John Mellor, Irina Higgins, Antonia Creswell, Nat McAleese, Amy Wu, Erich Elsen, Siddhant Jayakumar,
+  Elena Buchatskaya, David Budden, Esme Sutherland, Karen Simonyan, Michela Paganini, Laurent Sifre,
+  Lena Martens, Xiang Lorraine Li, Adhiguna Kuncoro, Aida Nematzadeh, Elena Gribovskaya, Domenic
+  Donato, Angeliki Lazaridou, Arthur Mensch, Jean-Baptiste Lespiau, Maria Tsimpoukelli, Nikolai Grigorev,
+  Doug Fritz, Thibault Sottiaux, Mantas Pajarskas, Toby Pohlen, Zhitao Gong, Daniel Toyama, Cyprien
+  de Masson d’Autume, Yujia Li, Tayfun Terzi, Vladimir Mikulik, Igor Babuschkin, Aidan Clark, Diego
+  de Las Casas, Aurelia Guy, Chris Jones, James Bradbury, Matthew Johnson, Blake Hechtman, Laura
+  Weidinger, Iason Gabriel, William Isaac, Ed Lockhart, Simon Osindero, Laura Rimell, Chris Dyer, Oriol
+  Vinyals, Kareem Ayoub, Jeff Stanway, Lorrayne Bennett, Demis Hassabis, Koray Kavukcuoglu, and Geof-
+  frey Irving. Scaling language models: Methods, analysis & insights from training gopher, 2021.
+- Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+  Wei Li, and Peter J. Liu. Exploring the limits of transfer learning with a unified text-to-text transformer.
+  Journal of Machine Learning Research (JMLR), 2020.
+- Rajkumar Ramamurthy, Prithviraj Ammanabrolu, Kianté Brantley, Jack Hessel, Rafet Sifa, Christian Bauck-
+  hage, Hannaneh Hajishirzi, and Yejin Choi. Is reinforcement learning (not) for natural language process-
+  ing?: Benchmarks, baselines, and building blocks for natural language policy optimization. arXiv preprint
+  arXiv:2210.01241, 2022.
+- Stephen Robertson and Hugo Zaragoza. The probabilistic relevance framework: BM25 and beyond. Now
+  Publishers Inc, 2009.
+- Victor Sanh, Albert Webson, Colin Raffel, Stephen Bach, Lintang Sutawika, Zaid Alyafeai, Antoine Chaffin,
+  Arnaud Stiegler, Arun Raja, Manan Dey, M Saiful Bari, Canwen Xu, Urmish Thakker, Shanya Sharma
+  Sharma, Eliza Szczechla, Taewoon Kim, Gunjan Chhablani, Nihal Nayak, Debajyoti Datta, Jonathan
+  Chang, Mike Tian-Jian Jiang, Han Wang, Matteo Manica, Sheng Shen, Zheng Xin Yong, Harshit Pandey,
+  Rachel Bawden, Thomas Wang, Trishala Neeraj, Jos Rozen, Abheesht Sharma, Andrea Santilli, Thibault
+  Fevry, Jason Alan Fries, Ryan Teehan, Teven Le Scao, Stella Biderman, Leo Gao, Thomas Wolf, and
+  Alexander M Rush. Multitask prompted training enables zero-shot task generalization. In International
+  Conference on Learning Representations (ICLR), 2022.
+- Timo Schick, Jane Dwivedi-Yu, Zhengbao Jiang, Fabio Petroni, Patrick Lewis, Gautier Izacard, Qingfei You,
+  Christoforos Nalmpantis, Edouard Grave, and Sebastian Riedel. Peer: A collaborative language model.
+  arXiv preprint arXiv:2208.11663, 2022.
+- Timo Schick, Jane Dwivedi-Yu, Roberto Dessì†, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola
+  Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. arXiv
+  preprint arXiv:2302.04761, 2023.
+- John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimiza-
+  tion algorithms. arXiv preprint arXiv:1707.06347, 2017.
+- Thomas Scialom, Tuhin Chakrabarty, and Smaranda Muresan. Continual-t0: Progressively instructing 50+
+  tasks to language models without forgetting. Conference on Empirical Methods in Natural Language
+  Processing (EMNLP), 2022.
+- Tianxiao Shen, Victor Quach, Regina Barzilay, and Tommi Jaakkola. Blank language models. In Conference
+  on Empirical Methods in Natural Language Processing (EMNLP), 2020.
+- Tianlin Shi, Andrej Karpathy, Linxi Fan, Jonathan Hernandez, and Percy Liang. World of bits: An open-
+  domain platform for web-based agents. In International Conference on Machine Learning (ICML), 2017.
+- Kumar Shridhar, Alessandro Stolfo, and Mrinmaya Sachan. Distilling multi-step reasoning capabilities of
+  large language models into smaller models via semantic decompositions. arXiv preprint arXiv:2212.00193,
+
+2022.
+
+- Kurt Shuster, Mojtaba Komeili, Leonard Adolphs, Stephen Roller, Arthur Szlam, and Jason Weston. Lan-
+  guage models that seek for knowledge: Modular search & generation for dialogue and prompt completion.
+  arXiv preprint arXiv:2203.13224, 2022a.
+- Kurt Shuster, Jing Xu, Mojtaba Komeili, Da Ju, Eric Michael Smith, Stephen Roller, Megan Ung, Moya
+  Chen, Kushal Arora, Joshua Lane, Morteza Behrooz, William Ngan, Spencer Poff, Naman Goyal, Arthur
+  Szlam, Y-Lan Boureau, Melanie Kambadur, and Jason Weston. Blenderbot 3: a deployed conversational
+  agent that continually learns to responsibly engage. arXiv preprint arXiv:2208.03188, 2022b.
+- David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, Julian
+  Schrittwieser, Ioannis Antonoglou, Veda Panneershelvam, Marc Lanctot, et al. Mastering the game of go
+  with deep neural networks and tree search. Nature, 529(7587):484–489, 2016.
+- Charlie Snell, Ilya Kostrikov, Yi Su, Mengjiao Yang, and Sergey Levine. Offline rl for natural language
+  generation with implicit language q learning. arXiv preprint arXiv:2206.11871, 2022.
+- Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao, Abu Awal Md Shoeb, Abubakar Abid, Adam Fisch,
+  Adam R Brown, Adam Santoro, Aditya Gupta, Adrià Garriga-Alonso, et al. Beyond the imitation game:
+  Quantifying and extrapolating the capabilities of language models. arXiv preprint arXiv:2206.04615, 2022.
+- Nisan Stiennon, Long Ouyang, Jeffrey Wu, Daniel Ziegler, Ryan Lowe, Chelsea Voss, Alec Radford, Dario
+  Amodei, and Paul F Christiano. Learning to summarize with human feedback. In Advances in Neural
+  Information Processing Systems (NeurIPS), 2020.
+- Richard S Sutton and Andrew G Barto. Reinforcement learning: An introduction. MIT press, 2018.
+- Mirac Suzgun, Nathan Scales, Nathanael Schärli, Sebastian Gehrmann, Yi Tay, Hyung Won Chung,
+  Aakanksha Chowdhery, Quoc V. Le, Ed H. Chi, Denny Zhou, and Jason Wei. Challenging big-bench
+  tasks and whether chain-of-thought can solve them, 2022. URL https://arxiv.org/abs/2210.09261.
+  Alon Talmor and Jonathan Berant. The web as a knowledge-base for answering complex questions. In
+  Proceedings of the North American Chapter of the Association for Computational Linguistics (NAACL),
+
+2018.
+
+- Yi Tay, Mostafa Dehghani, Vinh Q Tran, Xavier Garcia, Dara Bahri, Tal Schuster, Huaixiu Steven
+  Zheng, Neil Houlsby, and Donald Metzler. Unifying language learning paradigms. arXiv preprint
+  arXiv:2205.05131, 2022.
+- Ross Taylor, Marcin Kardas, Guillem Cucurull, Thomas Scialom, Anthony Hartshorn, Elvis Saravia, Andrew
+  Poulton, Viktor Kerkez, and Robert Stojnic. Galactica: A large language model for science. arXiv preprint
+  arXiv:2211.09085, 2022.
+- Open Ended Learning Team, Adam Stooke, Anuj Mahajan, Catarina Barros, Charlie Deck, Jakob Bauer,
+  Jakub Sygnowski, Maja Trebacz, Max Jaderberg, Michael Mathieu, et al. Open-ended learning leads to
+  generally capable agents. arXiv preprint arXiv:2107.12808, 2021.
+- Romal Thoppilan, Daniel De Freitas, Jamie Hall, Noam Shazeer, Apoorv Kulshreshtha, Heng-Tze Cheng,
+  Alicia Jin, Taylor Bos, Leslie Baker, Yu Du, YaGuang Li, Hongrae Lee, Huaixiu Steven Zheng, Amin
+  Ghafouri, Marcelo Menegali, Yanping Huang, Maxim Krikun, Dmitry Lepikhin, James Qin, Dehao Chen,
+  Yuanzhong Xu, Zhifeng Chen, Adam Roberts, Maarten Bosma, Vincent Zhao, Yanqi Zhou, Chung-Ching
+  Chang, Igor Krivokon, Will Rusch, Marc Pickett, Pranesh Srinivasan, Laichee Man, Kathleen Meier-
+  Hellstern, Meredith Ringel Morris, Tulsee Doshi, Renelito Delos Santos, Toju Duke, Johnny Soraker, Ben
+  Zevenbergen, Vinodkumar Prabhakaran, Mark Diaz, Ben Hutchinson, Kristen Olson, Alejandra Molina,
+  Erin Hoffman-John, Josh Lee, Lora Aroyo, Ravi Rajakumar, Alena Butryna, Matthew Lamm, Viktoriya
+  Kuzmina, Joe Fenton, Aaron Cohen, Rachel Bernstein, Ray Kurzweil, Blaise Aguera-Arcas, Claire Cui,
+  Marian Croak, Ed Chi, and Quoc Le. Lamda: Language models for dialog applications. arXiv preprint
+  arXiv:2201.08239, 2022.
+- Kushal Tirumala, Aram H. Markosyan, Luke Zettlemoyer, and Armen Aghajanyan. Memorization without
+  overfitting: Analyzing the training dynamics of large language models. In Advances in Neural Information
+  Processing Systems (NeurIPS), 2022.
+- Daniel Toyama, Philippe Hamel, Anita Gergely, Gheorghe Comanici, Amelia Glaese, Zafarali Ahmed, Tyler
+  Jackson, Shibl Mourad, and Doina Precup. Androidenv: a reinforcement learning platform for android.
+  arXiv preprint arXiv:2105.13231, 2021.
+- Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. Interleaving retrieval with
+  chain-of-thought reasoning for knowledge-intensive multi-step questions. arXiv preprint arXiv:2212.10509,
+
+2022.
+
+- Oriol Vinyals, Igor Babuschkin, Wojciech M Czarnecki, Michaël Mathieu, Andrew Dudzik, Junyoung Chung,
+  David H Choi, Richard Powell, Timo Ewalds, Petko Georgiev, et al. Grandmaster level in starcraft ii
+  using multi-agent reinforcement learning. Nature, 575(7782):350–354, 2019.
+- Boshi Wang, Xiang Deng, and Huan Sun. Iteratively prompt pre-trained language models for chain of
+  thought. Conference on Empirical Methods in Natural Language Processing (EMNLP), 2022a.
+- Ruoyao Wang, Peter Jansen, Marc-Alexandre Côté, and Prithviraj Ammanabrolu. Behavior cloned trans-
+  formers are neurosymbolic reasoners. arXiv preprint arXiv:2210.07382, 2022b.
+- Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and
+  Denny Zhou. Self-consistency improves chain of thought reasoning in language models. Advances in Neural
+  Information Processing Systems (NeurIPS), 2022c.
+- Yizhong Wang, Swaroop Mishra, Pegah Alipoormolabashi, Yeganeh Kordi, Amirreza Mirzaei, Anjana Arunk-
+  umar, Arjun Ashok, Arut Selvan Dhanasekaran, Atharva Naik, David Stap, Eshaan Pathak, Giannis Kara-
+  manolakis, Haizhi Gary Lai, Ishan Purohit, Ishani Mondal, Jacob Anderson, Kirby Kuznia, Krima Doshi,
+  Maitreya Patel, Kuntal Kumar Pal, Mehrad Moradshahi, Mihir Parmar, Mirali Purohit, Neeraj Varshney,
+  Phani Rohitha Kaza, Pulkit Verma, Ravsehaj Singh Puri, Rushang Karia, Shailaja Keyur Sampat, Savan
+  Doshi, Siddhartha Mishra, Sujan Reddy, Sumanta Patro, Tanay Dixit, Xudong Shen, Chitta Baral, Yejin
+  Choi, Noah A. Smith, Hannaneh Hajishirzi, and Daniel Khashabi. Super-natural instructions: General-
+  ization via declarative instructions on 1600+ nlp tasks. In Conference on Empirical Methods in Natural
+  Language Processing (EMNLP), 2022d.
+- Zihao Wang, Shaofei Cai, Anji Liu, Xiaojian Ma, and Yitao Liang. Describe, explain, plan and se-
+  lect: Interactive planning with large language models enables open-world multi-task agents, 2023. URL
+  https://arxiv.org/abs/2302.01560.
+- Garrett Warnell, Nicholas Waytowich, Vernon Lawhern, and Peter Stone. Deep tamer: Interactive agent
+  shaping in high-dimensional state spaces. In Proceedings of the AAAI conference on artificial intelligence,
+  volume 32, 1, 2018.
+- Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M
+  Dai, and Quoc V Le. Finetuned language models are zero-shot learners. International Conference on
+  Learning Representations (ICLR), 2022a.
+- Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama,
+  Maarten Bosma, Denny Zhou, Donald Metzler, et al. Emergent abilities of large language models. Trans-
+  actions on Machine Learning Research (TMLR), 2022b.
+  Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Ed Chi, Quoc Le, and Denny Zhou. Chain of
+  thought prompting elicits reasoning in large language models. arXiv preprint arXiv:2201.11903, 2022c.
+  Sean Welleck, Ilia Kulikov, Stephen Roller, Emily Dinan, Kyunghyun Cho, and Jason Weston. Neural text
+  generation with unlikelihood training. In International Conference on Learning Representations (ICLR),
+
+2020.
+
+- Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning.
+  Machine learning, 8(3):229–256, 1992.
+- Jeff Wu, Long Ouyang, Daniel M Ziegler, Nisan Stiennon, Ryan Lowe, Jan Leike, and Paul Christiano.
+  Recursively summarizing books with human feedback. arXiv preprint arXiv:2109.10862, 2021.
+  Tongshuang Wu, Ellen Jiang, Aaron Donsbach, Jeff Gray, Alejandra Molina, Michael Terry, and Carrie J Cai.
+  Promptchainer: Chaining large language model prompts through visual programming. In CHI Conference
+  on Human Factors in Computing Systems Extended Abstracts, pages 1–10, 2022a.
+- Tongshuang Wu, Michael Terry, and Carrie Jun Cai. Ai chains: Transparent and controllable human-ai
+  interaction by chaining large language model prompts. In CHI Conference on Human Factors in Computing
+  Systems, pages 1–22, 2022b.
+- Yuhuai Wu, Albert Q Jiang, Wenda Li, Markus N Rabe, Charles Staats, Mateja Jamnik, and Christian
+  Szegedy. Autoformalization with large language models. Advances in Neural Information Processing
+  Systems (NeurIPS), 2022c.
+- Zeqiu Wu, Yi Luan, Hannah Rashkin, David Reitter, and Gaurav Singh Tomar. Conqrr: Conversational
+  query rewriting for retrieval with reinforcement learning. Conference on Empirical Methods in Natural
+  Language Processing (EMNLP), 2022d.
+- Ted Xiao, Harris Chan, Pierre Sermanet, Ayzaan Wahid, Anthony Brohan, Karol Hausman, Sergey Levine,
+  and Jonathan Tompson. Robotic skill acquisition via instruction augmentation with vision-language mod-
+  els. arXiv preprint arXiv:2211.11736, 2022.
+- Jing Xu, Megan Ung, Mojtaba Komeili, Kushal Arora, Y-Lan Boureau, and Jason Weston. Learning new
+  skills after deployment: Improving open-domain internet-driven dialogue with human feedback, 2022.
+- Jingfeng Yang, Haoming Jiang, Qingyu Yin, Danqing Zhang, Bing Yin, and Diyi Yang. Seqzero: Few-shot
+  compositional semantic parsing with sequential prompts and zero-shot models. Proceedings of the North
+  American Chapter of the Association for Computational Linguistics (NAACL), 2022a.
+- Kevin Yang, Dan Klein, Nanyun Peng, and Yuandong Tian. Doc: Improving long story coherence with
+  detailed outline control. arXiv preprint arXiv:2212.10077, 2022b.
+- Kevin Yang, Nanyun Peng, Yuandong Tian, and Dan Klein. Re3: Generating longer stories with recursive
+  reprompting and revision. Conference on Empirical Methods in Natural Language Processing (EMNLP),
+  2022c.
+- Shunyu Yao, Howard Chen, John Yang, and Karthik Narasimhan. Webshop: Towards scalable real-world
+  web interaction with grounded language agents. Advances in Neural Information Processing Systems
+  (NeurIPS), 2022a.
+- Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. React:
+  Synergizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629, 2022b.
+- David Yarowsky. Unsupervised word sense disambiguation rivaling supervised methods. In Proceedings of
+  the Annual Meeting of the Association for Computational Linguistics (ACL), 1995.
+- Ping Yu, Tianlu Wang, Olga Golovneva, X Alkhamissy, Gargi Ghosh, Mona Diab, and Asli Celikyilmaz.
+  Alert: Adapting language models to reasoning tasks. arXiv preprint arXiv:2212.08286, 2022.
+- Eric Zelikman, Jesse Mu, Noah D Goodman, and Yuhuai Tony Wu. Star: Self-taught reasoner bootstrapping
+  reasoning with reasoning. Advances in Neural Information Processing Systems (NeurIPS), 2022.
+- Andy Zeng, Maria Attarian, Brian Ichter, Krzysztof Choromanski, Adrian Wong, Stefan Welker, Fed-
+  erico Tombari, Aveek Purohit, Michael Ryoo, Vikas Sindhwani, Johnny Lee, Vincent Vanhoucke, and
+  Pete Florence. Socratic models: Composing zero-shot multimodal reasoning with language, 2022. URL
+  https://arxiv.org/abs/2204.00598.
+- Zhuosheng Zhang, Aston Zhang, Mu Li, Hai Zhao, George Karypis, and Alex Smola. Multimodal chain-of-
+  thought reasoning in language models, 2023.
+- Victor Zhong, Caiming Xiong, and Richard Socher. Seq2SQL: Generating structured queries from natural
+  language using reinforcement learning, 2018. URL https://openreview.net/forum?id=Syx6bz-Ab.
+  Zexuan Zhong, Tao Lei, and Danqi Chen. Training language models with memory augmentation. In Con-
+  ference on Empirical Methods in Natural Language Processing (EMNLP), 2022.
+- Denny Zhou, Nathanael Schärli, Le Hou, Jason Wei, Nathan Scales, Xuezhi Wang, Dale Schuurmans, Claire
+  Cui, Olivier Bousquet, Quoc Le, and Ed Chi. Least-to-most prompting enables complex reasoning in large
+  language models. arXiv preprint arXiv:2205.10625, 2022.
+- Daniel M Ziegler, Nisan Stiennon, Jeffrey Wu, Tom B Brown, Alec Radford, Dario Amodei, Paul Chris-
+  tiano, and Geoffrey Irving. Fine-tuning language models from human preferences. arXiv preprint
+  arXiv:1909.08593, 2019.

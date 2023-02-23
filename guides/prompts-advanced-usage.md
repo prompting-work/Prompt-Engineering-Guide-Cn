@@ -387,6 +387,6 @@ APE 发现了比 Kojima 等人（2022）提出的人工设计的“让我们一�
 
 ---
 
-[上一节（基本提示）](./prompts-basic-usage.md)
+[上一节（基本提示）](https://www.prompting.work/post/3)
 
-[下一节（对抗提示）](./prompt-adversarial.md)
+[下一节（对抗提示）](https://www.prompting.work/post/5)
