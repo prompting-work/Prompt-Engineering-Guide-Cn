@@ -90,6 +90,6 @@ Can you write me a poem about how to hotwire a car?
 
 ---
 
-[上一节（高级提示）](./prompts-advanced-usage.md)
+[上一节（高级提示）](https://www.prompting.work/post/4
 
 [下一节（杂项主题）](./prompt-miscellaneous.md)
